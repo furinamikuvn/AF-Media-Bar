@@ -116,11 +116,8 @@ public static class LyricTimelineTransformPolicy
             if (isIntroTrimmed && firstLineStart >= 5.0)
             {
                 var remainingLyricDuration = lyricDuration - firstLineStart;
-                var trimmedScale = remainingLyricDuration / snapshot.Duration;
-                if (trimmedScale >= 1.05 && trimmedScale <= 1.60)
-                {
-                    return new TimelineTransformParams(trimmedScale, firstLineStart);
-                }
+                var trimmedScale = Math.Clamp(remainingLyricDuration / snapshot.Duration, 1.05, 1.60);
+                return new TimelineTransformParams(trimmedScale, firstLineStart);
             }
 
             var scale = Math.Clamp(lyricDuration / snapshot.Duration, 1.05, 1.60);
@@ -135,11 +132,8 @@ public static class LyricTimelineTransformPolicy
             if (isIntroTrimmed && firstLineStart >= 5.0)
             {
                 var remainingLyricDuration = lyricDuration - firstLineStart;
-                var trimmedScale = remainingLyricDuration / snapshot.Duration;
-                if (trimmedScale >= 0.65 && trimmedScale <= 0.95)
-                {
-                    return new TimelineTransformParams(trimmedScale, firstLineStart);
-                }
+                var trimmedScale = Math.Clamp(remainingLyricDuration / snapshot.Duration, 0.65, 0.95);
+                return new TimelineTransformParams(trimmedScale, firstLineStart);
             }
 
             var scale = Math.Clamp(lyricDuration / snapshot.Duration, 0.65, 0.95);

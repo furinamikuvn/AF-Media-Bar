@@ -217,6 +217,36 @@ public sealed class LyricTimelineTransformPolicyTests
     }
 
     [TestMethod]
+    public void SpeedUp_WithLongOutroVideo_StillAppliesTrimmedIntroWhenAiConfirmsVocal()
+    {
+        // Case: Vì Yêu Cứ Đâm Đầu - Min x Đen Vâu x Justatee [ Lyrics // Speed Up ] (SArisu Chill)
+        // Original: lyrics end at 214.28s, intro is 15.73s. Video has long Live2D outro: 232.9s.
+        // AI Listener heard vocal onset at 0s => IntroTrimmed = true.
+        OneShotAiListener.SetIntroTrimmedOverride(
+            "Vì Yêu Cứ Đâm Đầu - Min x Đen Vâu x Justatee [ Lyrics // Speed Up ]", "SArisu Chill", 232.9, true);
+
+        var doc = CreateLyricDoc(
+            (15.73, 17.90, "Qua nỗi sầu đêm nay"),
+            (17.90, 19.87, "Trăng gối đầu lên mây"),
+            (19.87, 23.85, "Thêm chút rượu và men cuốn muộn phiền đi để tình thêm say"),
+            (23.85, 214.28, "Lời kết"));
+
+        var snapshot = CreateSnapshot("Vì Yêu Cứ Đâm Đầu - Min x Đen Vâu x Justatee [ Lyrics // Speed Up ]", "SArisu Chill", 232.9, 0.0, doc);
+        
+        // At video second 0: should immediately map to 15.73s (line 0)
+        var atZero = LyricTimelineTransformPolicy.ResolvePosition(snapshot, 0.0);
+        Assert.AreEqual(15.73, atZero, 0.1);
+
+        // At video second 2.0: should map to >= 17.8s (line 1 "Trăng gối đầu lên mây")
+        var atTwo = LyricTimelineTransformPolicy.ResolvePosition(snapshot, 2.0);
+        Assert.IsTrue(atTwo >= 17.8 && atTwo <= 19.0, $"Expected >= 17.8, but was {atTwo}");
+
+        // At video second 4.0: should map to >= 19.87s (line 2 "Thêm chút rượu và men...")
+        var atFour = LyricTimelineTransformPolicy.ResolvePosition(snapshot, 4.0);
+        Assert.IsTrue(atFour >= 19.87, $"Expected >= 19.87, but was {atFour}");
+    }
+
+    [TestMethod]
     public void InvalidInputs_HandledSafely()
     {
         var snapshotNoLyrics = CreateSnapshot("Bài hát", "Ca Sĩ", 180, 25, null);
