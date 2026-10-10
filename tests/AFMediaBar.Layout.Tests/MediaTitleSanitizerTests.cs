@@ -194,6 +194,45 @@ public sealed class MediaTitleSanitizerTests
         Assert.AreEqual("Nhắn nhủ", track2.Title);
         Assert.AreEqual("Ronboogz", track2.Artist);
         Assert.IsFalse(track2.IsExcludedRemix);
+
+        // 3. Lời Yêu Ngây Dại - Kha [ Lyrics // Speed Up ] | Ibuki - Blue Archive Live2D
+        var track3 = MediaTitleSanitizer.Sanitize(
+            "Lời Yêu Ngây Dại - Kha [ Lyrics // Speed Up ] | Ibuki - Blue Archive Live2D",
+            "SArisu Chill",
+            "chrome.exe");
+
+        Assert.AreEqual("Lời Yêu Ngây Dại", track3.Title);
+        Assert.AreEqual("Kha", track3.Artist);
+        Assert.IsFalse(track3.IsExcludedRemix);
+
+        // 4. Người Em Cố Đô - Rum x Daa | Speed Up Songs
+        var track4 = MediaTitleSanitizer.Sanitize(
+            "Người Em Cố Đô - Rum x Daa | Speed Up Songs",
+            "Yuuko",
+            "chrome.exe");
+
+        Assert.AreEqual("Người Em Cố Đô", track4.Title);
+        Assert.AreEqual("Rum x Daa", track4.Artist);
+        Assert.IsFalse(track4.IsExcludedRemix);
+
+        // 5. 100 Years Love - NamDuc [ Lyrics // Speed Up ]
+        var track5 = MediaTitleSanitizer.Sanitize(
+            "100 Years Love - NamDuc [ Lyrics // Speed Up ]",
+            "SArisu Chill",
+            "chrome.exe");
+
+        Assert.AreEqual("100 Years Love", track5.Title);
+        Assert.AreEqual("NamDuc", track5.Artist);
+        Assert.IsFalse(track5.IsExcludedRemix);
+
+        // 6. mua đợi chờ/Blue archive/nhạc chill/lyrics
+        var track6 = MediaTitleSanitizer.Sanitize(
+            "mua đợi chờ/Blue archive/nhạc chill/lyrics",
+            "MOMOI_MUSIC",
+            "chrome.exe");
+
+        Assert.AreEqual("mua đợi chờ", track6.Title);
+        Assert.IsFalse(track6.IsExcludedRemix);
     }
 
     [TestMethod]

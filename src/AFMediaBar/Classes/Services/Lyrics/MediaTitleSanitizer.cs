@@ -96,11 +96,30 @@ public static partial class MediaTitleSanitizer
 
         if (validSegments.Count >= 2)
         {
-            // 多个段落，判断哪段是 Title，哪段是 Artist
             var seg1 = validSegments[0];
             var seg2 = validSegments[1];
 
-            (finalTitle, finalArtist) = DisambiguateTitleAndArtist(seg1, seg2, cleanedChannel, isDashSeparator: false);
+            // 关键特例：如果 seg1 本身已经包含了破折号且能有效拆分为两段（如 "Lời Yêu Ngây Dại - Kha" 或 "Người Em Cố Đô - Rum x Daa"），
+            // 则说明 seg1 自身已经是一套完整的 Title - Artist，而后续的 seg2 （如 "Ibuki - Blue Archive Live2D" 或 "Speed Up Songs"）
+            // 只是背景视频或次级修饰信息，不应将 seg1 与 seg2 强行当成 Title 与 Artist。
+            var seg1DashMatch = DashOrUnderscoreSeparatorRegex().Match(seg1);
+            if (seg1DashMatch.Success)
+            {
+                var left = seg1[..seg1DashMatch.Index].Trim();
+                var right = seg1[(seg1DashMatch.Index + seg1DashMatch.Length)..].Trim();
+                if (!IsPureNoiseSegment(left) && !IsPureNoiseSegment(right))
+                {
+                    (finalTitle, finalArtist) = DisambiguateTitleAndArtist(left, right, cleanedChannel, isDashSeparator: true);
+                }
+                else
+                {
+                    (finalTitle, finalArtist) = DisambiguateTitleAndArtist(seg1, seg2, cleanedChannel, isDashSeparator: false);
+                }
+            }
+            else
+            {
+                (finalTitle, finalArtist) = DisambiguateTitleAndArtist(seg1, seg2, cleanedChannel, isDashSeparator: false);
+            }
         }
         else if (validSegments.Count == 1)
         {
@@ -312,14 +331,25 @@ public static partial class MediaTitleSanitizer
     private static bool IsNoiseBracketContent(string inner)
     {
         if (string.IsNullOrWhiteSpace(inner)) return true;
-        return NoiseBracketContentRegex().IsMatch(inner);
+        if (NoiseBracketContentRegex().IsMatch(inner)) return true;
+
+        // 综合去噪：处理组合型标签，如 [ Lyrics // Speed Up ], [ MV | 4K 60FPS ], [ Vietsub + Kara ]
+        var withoutNoise = NoiseTokenRegex().Replace(inner, string.Empty);
+        var remainingClean = withoutNoise.Trim(' ', '/', '\\', '|', '+', '&', '-', '•', ',', ';', '_');
+        return remainingClean.Length == 0;
     }
 
     private static bool IsPureNoiseSegment(string segment)
     {
         var text = segment.Trim();
         if (text.Length == 0) return true;
-        return PureNoiseSegmentRegex().IsMatch(text);
+        if (PureNoiseSegmentRegex().IsMatch(text)) return true;
+        if (PureNoiseThemeRegex().IsMatch(text)) return true;
+
+        // 综合去噪：如果整个段落全是噪音词（如 "Speed Up Songs", "Lyrics // Speed Up"）
+        var withoutNoise = NoiseTokenRegex().Replace(text, string.Empty);
+        var remainingClean = withoutNoise.Trim(' ', '/', '\\', '|', '+', '&', '-', '•', ',', ';', '_');
+        return remainingClean.Length == 0;
     }
 
     private static string CleanRemainingTempoTags(string title)
@@ -373,7 +403,7 @@ public static partial class MediaTitleSanitizer
     [GeneratedRegex(@"\s*[-–—]?\s*(Topic|Official(\s*Channel|\s*Music|\s*Audio|\s*MV|\s*Video)?|Kênh\s*Chính\s*Thức|Entertainment|Ent\.|Records|Production|Studio|Media|Music|VEVO)\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ChannelSuffixRegex();
 
-    [GeneratedRegex(@"\s*[\|•丨｜]\s*")]
+    [GeneratedRegex(@"(?:\s*[\|•丨｜]\s*|\s*//+\s*|\s+/\s*|\s*/\s+|(?<=\S\s+\S+)/(?=\S)|(?<=\S)/(?=\S+\s+\S+))")]
     private static partial Regex PipeSeparatorRegex();
 
     [GeneratedRegex(@"(?:\s*[–—_]\s*|\s+-\s+)")]
@@ -399,4 +429,10 @@ public static partial class MediaTitleSanitizer
 
     [GeneratedRegex(@"[\p{Cs}\p{So}\p{Sk}\p{Cn}]")]
     private static partial Regex EmojiOrSymbolRegex();
+
+    [GeneratedRegex(@"(?:\b(official(\s*(?:music|audio|video|visualizer|mv))?|music\s*video|mv|m/v|audio|visualizer|lyric\s*video|lyrics?\s*video|lyrics?|video\s*ca\s*nhạc|4k|8k|hd|fhd|uhd|1080p|720p|60fps|hi-res|lossless|speed\s*up|sped\s*up|speedup|slowed|reverb|lo-?fi(\s*ver(sion)?)?|chill|acoustic|piano|guitar|vietsub|karaoke|kara|sub\s*eng|engsub|ost|soundtrack|teaser|trailer|remix)\b|[//\\|+\-&•,;_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex NoiseTokenRegex();
+
+    [GeneratedRegex(@"^(?:speed\s*up\s*songs?|sped\s*up\s*songs?|nhạc\s*chill(\s*(?:tiktok|buồn|gây\s*nghiện))?|chill\s*songs?|nhạc\s*(?:hot\s*)?tiktok|trend\s*tiktok|.*(?:blue\s*archive|genshin\s*impact|honkai|live2d|wallpaper|amv|mmd|anime\s*mv).*)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex PureNoiseThemeRegex();
 }
