@@ -56,7 +56,8 @@ internal static partial class LyricsMetadataScore
             return new(0, 0, 0, 0, scores.DefaultIfEmpty(0).Max());
         }
 
-        var titleScore = titles.Select(title => CompareTitle(request.Title, title)).DefaultIfEmpty(0).Max();
+        var isVietnamese = MediaTitleSanitizer.IsVietnameseTrack(request.Title, request.Artist);
+        var titleScore = titles.Select(title => isVietnamese ? CompareTitle(request.Title, title) : Compare(request.Title, title)).DefaultIfEmpty(0).Max();
         // Preserve the existing best-artist-match policy, now comparing individual artists on both sides.
         var artistScore = (from requestArtist in requestArtists
                            from candidateArtist in candidateArtists
@@ -65,12 +66,12 @@ internal static partial class LyricsMetadataScore
         var durationScore = CompareDuration(request.DurationSeconds, duration);
         var directBreakdown = new Breakdown(titleScore, artistScore, albumScore, durationScore, null);
 
-        if (directBreakdown.TotalScore >= MinimumScore)
+        if (!isVietnamese || directBreakdown.TotalScore >= MinimumScore)
         {
             return directBreakdown;
         }
 
-        // 兜底反向容错：针对某些播放器或元数据源误将标题与歌手颠倒的情况
+        // 兜底反向容错：针对某些播放器或元数据源误将标题与歌手颠倒的情况（仅针对越南语曲目）
         // （例如 request.Title = "Sơn Tùng M-TP", request.Artist = "Đừng làm trái tim anh đau"）
         // 必须要求互换后的 Title 与 Artist 均达到高相似度门槛（>= 0.65），以防非同名曲目虚假匹配
         if (!string.IsNullOrWhiteSpace(request.Artist))

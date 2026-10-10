@@ -99,15 +99,15 @@ public sealed class MediaTitleSanitizerTests
     }
 
     [TestMethod]
-    public void SanitizesKoreanMvWithUnderscoreSeparator()
+    public void NonVietnameseTrackKoreanMvPreservesRawMetadata()
     {
         var result = MediaTitleSanitizer.Sanitize(
             "[MV] IU(아이유) _ Blueming(블루밍)",
             "1theK (원더케이)",
             "chrome.exe");
 
-        Assert.AreEqual("Blueming(블루밍)", result.Title);
-        Assert.AreEqual("IU(아이유)", result.Artist);
+        Assert.AreEqual("[MV] IU(아이유) _ Blueming(블루밍)", result.Title);
+        Assert.AreEqual("1theK (원더케이)", result.Artist);
         Assert.IsFalse(result.IsExcludedRemix);
     }
 
@@ -247,38 +247,70 @@ public sealed class MediaTitleSanitizerTests
     }
 
     [TestMethod]
-    public void SanitizesInternationalAndChineseOstTracksWithMultipleSegments()
+    [DataRow("SƠN TÙNG M-TP | ĐỪNG LÀM TRÁI TIM ANH ĐAU | OFFICIAL MUSIC VIDEO", "Sơn Tùng M-TP Official", true)]
+    [DataRow("Như Anh Đã Thấy Em - PHUCXP | speed up", "MinhTann Music", true)]
+    [DataRow("Cắt Đôi Nỗi Sầu (Vinahouse 2024)", "Tăng Duy Tân", true)]
+    [DataRow("BẠC PHẬN | ICM x JACK | OFFICIAL MV", "ICM Entertainment", true)]
+    [DataRow("100 Years Love - NamDuc [ Lyrics // Speed Up ]", "SArisu Chill", true)]
+    [DataRow("mua đợi chờ/Blue archive/nhạc chill/lyrics", "MOMOI_MUSIC", true)]
+    [DataRow("Attack on Titan - Season 4 | The Rumbling - SiM", "Crunchyroll", false)]
+    [DataRow("Arcane | Enemy - Imagine Dragons", "League of Legends", false)]
+    [DataRow("仙剑奇侠传三 - 原声带 | 生生世世爱 - 吴雨霏", "OST Channel", false)]
+    [DataRow("Genshin Impact | La vaguelette - HOYO-MiX", "Genshin Impact", false)]
+    [DataRow("周杰伦 - 告白气球", "周杰伦 Jay Chou", false)]
+    [DataRow("Shape of You", "Ed Sheeran", false)]
+    public void AccuratelyIdentifiesVietnameseVersusForeignAndChineseTracks(string title, string artist, bool expected)
+    {
+        Assert.AreEqual(expected, MediaTitleSanitizer.IsVietnameseTrack(title, artist),
+            $"Track '{title}' by '{artist}' should be identified as {(expected ? "Vietnamese" : "Non-Vietnamese")}.");
+    }
+
+    [TestMethod]
+    public void PreservesUntouchedMetadataForInternationalAndChineseTracks()
     {
         // 1. Attack on Titan - Season 4 | The Rumbling - SiM
         var track1 = MediaTitleSanitizer.Sanitize(
             "Attack on Titan - Season 4 | The Rumbling - SiM",
             "Crunchyroll",
             "chrome.exe");
-        Assert.AreEqual("The Rumbling", track1.Title);
-        Assert.AreEqual("SiM", track1.Artist);
+        Assert.AreEqual("Attack on Titan - Season 4 | The Rumbling - SiM", track1.Title);
+        Assert.AreEqual("Crunchyroll", track1.Artist);
+        Assert.IsFalse(track1.IsExcludedRemix);
 
         // 2. Arcane | Enemy - Imagine Dragons
         var track2 = MediaTitleSanitizer.Sanitize(
             "Arcane | Enemy - Imagine Dragons",
             "League of Legends",
             "chrome.exe");
-        Assert.AreEqual("Enemy", track2.Title);
-        Assert.AreEqual("Imagine Dragons", track2.Artist);
+        Assert.AreEqual("Arcane | Enemy - Imagine Dragons", track2.Title);
+        Assert.AreEqual("League of Legends", track2.Artist);
+        Assert.IsFalse(track2.IsExcludedRemix);
 
         // 3. 仙剑奇侠传三 - 原声带 | 生生世世爱 - 吴雨霏
         var track3 = MediaTitleSanitizer.Sanitize(
             "仙剑奇侠传三 - 原声带 | 生生世世爱 - 吴雨霏",
             "OST Channel",
             "chrome.exe");
-        Assert.AreEqual("生生世世爱", track3.Title);
-        Assert.AreEqual("吴雨霏", track3.Artist);
+        Assert.AreEqual("仙剑奇侠传三 - 原声带 | 生生世世爱 - 吴雨霏", track3.Title);
+        Assert.AreEqual("OST Channel", track3.Artist);
+        Assert.IsFalse(track3.IsExcludedRemix);
 
         // 4. Genshin Impact | La vaguelette - HOYO-MiX
         var track4 = MediaTitleSanitizer.Sanitize(
             "Genshin Impact | La vaguelette - HOYO-MiX",
             "Genshin Impact",
             "chrome.exe");
-        Assert.AreEqual("La vaguelette", track4.Title);
-        Assert.AreEqual("HOYO-MiX", track4.Artist);
+        Assert.AreEqual("Genshin Impact | La vaguelette - HOYO-MiX", track4.Title);
+        Assert.AreEqual("Genshin Impact", track4.Artist);
+        Assert.IsFalse(track4.IsExcludedRemix);
+
+        // 5. 周杰伦 - 告白气球
+        var track5 = MediaTitleSanitizer.Sanitize(
+            "周杰伦 - 告白气球",
+            "周杰伦 Jay Chou",
+            "chrome.exe");
+        Assert.AreEqual("周杰伦 - 告白气球", track5.Title);
+        Assert.AreEqual("周杰伦 Jay Chou", track5.Artist);
+        Assert.IsFalse(track5.IsExcludedRemix);
     }
 }

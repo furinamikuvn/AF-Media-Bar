@@ -12,12 +12,74 @@ public static partial class MediaTitleSanitizer
     public sealed record SanitizedMediaInfo(string Title, string Artist, bool IsExcludedRemix);
 
     /// <summary>
+    /// <summary>
+    /// 判断是否为越南语曲目（包含越南语注音字符、显式越南舞曲/厂牌/制作人、知名越南歌手或歌名关键词）。
+    /// 非越南曲目（如华语、欧美、日韩等）将严格保持原作者默认逻辑，不做激进拆分与清洗。
+    /// Determines whether a track is Vietnamese. Non-Vietnamese tracks (Chinese, English, J-Pop, etc.)
+    /// strictly preserve the upstream author's untouched logic.
+    /// </summary>
+    public static bool IsVietnameseTrack(string? title, string? artist)
+    {
+        if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(artist))
+        {
+            return false;
+        }
+
+        var fullText = $"{title} {artist}".Trim();
+
+        // 1. 包含越南特色带调字符（最权威、无误报特征）
+        if (VietnameseDiacriticsRegex().IsMatch(fullText))
+        {
+            return true;
+        }
+
+        // 2. 如果包含中日韩字符（汉字、假名、谚文）且没有越南声调，直接判定为非越南曲目
+        if (CjkCharactersRegex().IsMatch(fullText))
+        {
+            return false;
+        }
+
+        // 3. 显式越南电音/舞曲/Remix 流派（Vinahouse, Vietmix, Bay phòng, v.v.）
+        if (ExplicitVietnameseDanceGenreRegex().IsMatch(fullText))
+        {
+            return true;
+        }
+
+        // 4. 知名越南 Remix 制作团队 / DJ / 厂牌
+        if (VietnameseRemixerRegex().IsMatch(fullText))
+        {
+            return true;
+        }
+
+        // 5. 命中知名越南艺人（无声调写法：Son Tung M-TP, PhucXP, Jack, K-ICM, Tang Duy Tan, v.v.）
+        if (KnownVietnameseArtistsRegex().IsMatch(fullText))
+        {
+            return true;
+        }
+
+        // 6. 命中知名越南歌名或特定越南词根短语（无声调写法：dung lam trai tim anh dau, cat doi noi sau, bac phan, v.v.）
+        if (VietnameseKeywordsRegex().IsMatch(fullText) || VietnameseSongTitleKeywordsRegex().IsMatch(fullText))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// 判断是否为越南 Remix、Vinahouse、Vietmix、Nonstop 等跳舞/电音混音曲目。
     /// Determines whether a track is an excluded Vietnamese remix/dance track.
     /// </summary>
     public static bool IsExcludedVietnameseRemix(string? title, string? artist)
     {
         if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(artist))
+        {
+            return false;
+        }
+
+        // 严格边界：仅当判定为越南曲目时，才执行越南 Remix 过滤！
+        // 华语与外国曲目绝对不被判定为越南 Remix 排除。
+        if (!IsVietnameseTrack(title, artist))
         {
             return false;
         }
@@ -42,15 +104,13 @@ public static partial class MediaTitleSanitizer
             return true;
         }
 
-        // 4. Bass Boosted / Nonstop / Nightcore / DJ 搭配越南语特征（纯非官方混音）
-        if (BassBoostedOrNonstopOrNightcoreRegex().IsMatch(fullText) &&
-            (VietnameseDiacriticsRegex().IsMatch(fullText) || VietnameseKeywordsRegex().IsMatch(fullText)))
+        // 4. Bass Boosted / Nonstop / Nightcore / DJ
+        if (BassBoostedOrNonstopOrNightcoreRegex().IsMatch(fullText))
         {
             return true;
         }
 
-        if (DjIndicatorRegex().IsMatch(fullText) &&
-            (VietnameseDiacriticsRegex().IsMatch(fullText) || VietnameseKeywordsRegex().IsMatch(fullText)))
+        if (DjIndicatorRegex().IsMatch(fullText))
         {
             return true;
         }
@@ -66,6 +126,12 @@ public static partial class MediaTitleSanitizer
     {
         var originalTitle = rawTitle?.Trim() ?? string.Empty;
         var originalArtist = rawArtist?.Trim() ?? string.Empty;
+
+        // 严格遵循原作者设计：如果不是越南曲目，原封不动保留原作者原本的标题与歌手，绝不介入清洗或误排除！
+        if (!IsVietnameseTrack(originalTitle, originalArtist))
+        {
+            return new SanitizedMediaInfo(originalTitle, originalArtist, IsExcludedRemix: false);
+        }
 
         var isExcluded = IsExcludedVietnameseRemix(originalTitle, originalArtist);
 
@@ -450,4 +516,10 @@ public static partial class MediaTitleSanitizer
 
     [GeneratedRegex(@"\b(season\s*\d*|episode\s*\d*|ep\s*\d*|tập\s*\d*|ost|soundtrack|bgm|op\s*\d*|ed\s*\d*|opening|ending|theme\s*song|live2d|wallpaper|blue\s*archive|genshin\s*impact|honkai|league\s*of\s*legends|arcane|naruto|anime\s*mv|amv|mmd|原声带|插曲|片头曲|片尾曲|主题曲|角色曲|第\s*\d+\s*[季期集])\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex FranchiseOrContainerRegex();
+
+    [GeneratedRegex(@"[\p{IsCJKUnifiedIdeographs}\p{IsHiragana}\p{IsKatakana}\p{IsHangulSyllables}]")]
+    private static partial Regex CjkCharactersRegex();
+
+    [GeneratedRegex(@"\b(sơn\s*tùng|son\s*tung|m-tp|mtp|ronboogz|phucxp|jack|j97|k-icm|kicm|tăng\s*duy\s*tân|tang\s*duy\s*tan|vũ\.|vũ\b|vu\b|đen\s*vâu|den\s*vau|đen\b|mono|grey\s*d|chillies|da\s*lab|erik|min\b|soobin|hieuthuhai|mck|tlinh|amee|phan\s*mạnh\s*quỳnh|phan\s*manh\s*quynh|hoàng\s*dũng|hoang\s*dung|wren\s*evans|b\s*ray|thành\s*đạt|thanh\s*dat|đức\s*phúc|duc\s*phuc|hòa\s*minzy|hoa\s*minzy|phương\s*ly|phuong\s*ly|noo\s*phước\s*thịnh|noo\s*phuoc\s*thinh|bích\s*phương|bich\s*phuong|bảo\s*anh|bao\s*anh|trung\s*quân|trung\s*quan|văn\s*mai\s*hương|van\s*mai\s*huong|quân\s*a\.?p|quan\s*a\.?p|khắc\s*việt|khac\s*viet|hoài\s*lâm|hoai\s*lam|namduc|nam\s*duc|kha\b|rum\b|vu\s*cat\s*tuong|vũ\s*cát\s*tường|bùi\s*anh\s*tuấn|bui\s*anh\s*tuan)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex KnownVietnameseArtistsRegex();
 }
