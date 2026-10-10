@@ -107,6 +107,18 @@ public static class LyricTimelineTransformPolicy
         // 显式包含倍速标签，或者越南语曲目且时长比率落在标准加速区间 (0.65 - 0.92)
         if (hasSpeedUpTag || (isVietnamese && durationRatio >= 0.65 && durationRatio <= 0.92))
         {
+            var firstLineStart = lines[0].Start;
+            // 真实场景：YouTube Speed Up 视频通常裁切掉了开头的前奏（>= 6 秒），让歌词在第 0 秒就立即开唱。
+            if (firstLineStart >= 6.0)
+            {
+                var remainingLyricDuration = lyricDuration - firstLineStart;
+                var trimmedScale = remainingLyricDuration / snapshot.Duration;
+                if (trimmedScale >= 1.05 && trimmedScale <= 1.60)
+                {
+                    return new TimelineTransformParams(trimmedScale, firstLineStart);
+                }
+            }
+
             var scale = Math.Clamp(lyricDuration / snapshot.Duration, 1.05, 1.60);
             return new TimelineTransformParams(scale, 0.0);
         }
@@ -115,6 +127,17 @@ public static class LyricTimelineTransformPolicy
         // 显式包含减速标签，或者越南语曲目且时长比率落在标准减速区间 (1.08 - 1.45)
         if (hasSlowedTag || (isVietnamese && durationRatio >= 1.08 && durationRatio <= 1.45))
         {
+            var firstLineStart = lines[0].Start;
+            if (hasSlowedTag && firstLineStart >= 6.0)
+            {
+                var remainingLyricDuration = lyricDuration - firstLineStart;
+                var trimmedScale = remainingLyricDuration / snapshot.Duration;
+                if (trimmedScale >= 0.65 && trimmedScale <= 0.95)
+                {
+                    return new TimelineTransformParams(trimmedScale, firstLineStart);
+                }
+            }
+
             var scale = Math.Clamp(lyricDuration / snapshot.Duration, 0.65, 0.95);
             return new TimelineTransformParams(scale, 0.0);
         }

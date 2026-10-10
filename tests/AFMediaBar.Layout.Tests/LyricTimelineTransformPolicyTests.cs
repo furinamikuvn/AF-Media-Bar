@@ -169,6 +169,29 @@ public sealed class LyricTimelineTransformPolicyTests
     }
 
     [TestMethod]
+    public void SpeedUp_WithTrimmedIntro_MatchesFromSecondZero()
+    {
+        // Case: Gió - Jank [ Lyrics // Speed Up ] (SArisu Chill)
+        // Original track: 277s, intro is 19.8s (first line starts at 19.8s).
+        // YouTuber cuts 19.8s intro and speeds up remaining 257.2s by ~1.28x => video duration is 201.2s.
+        var doc = CreateLyricDoc(
+            (19.8, 50.0, "Gió nhẹ sang tôi ngỡ trời xuân"),
+            (50.0, 75.0, "Vương trên môi nụ hôn của ai"),
+            (75.0, 150.0, "Phiên khúc 2"),
+            (150.0, 277.0, "Lời kết"));
+
+        var snapshot = CreateSnapshot("Gió - Jank [ Lyrics // Speed Up ]", "SArisu Chill", 201.2, 0.0, doc);
+        var effectiveAtZero = LyricTimelineTransformPolicy.ResolvePosition(snapshot, 0.0);
+
+        // At video second 0, lyrics should start at 19.8s immediately!
+        Assert.AreEqual(19.8, effectiveAtZero, 0.2);
+
+        // At video second 27.6s, effective should be ~55.0s (in the chorus "Vương trên môi nụ hôn của ai")
+        var effectiveAtChorus = LyricTimelineTransformPolicy.ResolvePosition(snapshot, 27.6);
+        Assert.AreEqual(55.06, effectiveAtChorus, 0.5);
+    }
+
+    [TestMethod]
     public void InvalidInputs_HandledSafely()
     {
         var snapshotNoLyrics = CreateSnapshot("Bài hát", "Ca Sĩ", 180, 25, null);
