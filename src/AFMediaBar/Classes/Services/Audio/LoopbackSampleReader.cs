@@ -8,17 +8,18 @@ internal sealed class LoopbackSampleReader
     private readonly BufferedWaveProvider _buffer;
     private readonly ISampleProvider _samples;
     private readonly float[] _scratch;
-    private readonly Action<float> _publish;
+    private readonly float[] _monoBuffer = new float[1024];
+    private readonly Action<float[], int> _publishChunk;
     private readonly int _channels;
     private readonly int _blockAlign;
 
-    internal LoopbackSampleReader(WaveFormat format, Action<float> publish)
+    internal LoopbackSampleReader(WaveFormat format, Action<float[], int> publishChunk)
     {
         if (format.Channels is < 1 or > 32 || format.SampleRate <= 0)
             throw new ArgumentException("Unsupported loopback channel count or sample rate.", nameof(format));
         _channels = format.Channels;
         _blockAlign = format.BlockAlign;
-        _publish = publish;
+        _publishChunk = publishChunk;
         _buffer = new BufferedWaveProvider(format.AsStandardWaveFormat(), TimeSpan.FromSeconds(2048d / format.SampleRate))
         {
             ReadFully = false
@@ -41,13 +42,19 @@ internal sealed class LoopbackSampleReader
             int read;
             while ((read = _samples.Read(_scratch.AsSpan())) > 0)
             {
+                var monoCount = 0;
                 for (var offset = 0; offset < read; offset += _channels)
                 {
                     var sum = 0f;
                     for (var channel = 0; channel < _channels; channel++)
                         sum += _scratch[offset + channel];
                     var mono = sum / _channels;
-                    _publish(float.IsFinite(mono) ? Math.Clamp(mono, -1f, 1f) : 0);
+                    _monoBuffer[monoCount++] = float.IsFinite(mono) ? Math.Clamp(mono, -1f, 1f) : 0;
+                }
+
+                if (monoCount > 0)
+                {
+                    _publishChunk(_monoBuffer, monoCount);
                 }
             }
         }

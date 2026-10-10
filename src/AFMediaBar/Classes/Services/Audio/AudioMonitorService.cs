@@ -52,6 +52,7 @@ public sealed class AudioMonitorService : BackgroundService, IMemoryPrunable
     // 频段幅度先整体算完再映射：相对 dB 窗口需要一个"本次采样的最大幅度"作为参考更新的输入。
     // Band magnitudes are computed in full before mapping: the relative dB window needs this sample's largest magnitude to advance the reference.
     private readonly double[] _bandMagnitudes = new double[SpectrumComponentSettings.MaximumBandCount];
+    private Action<float[], int, int>? _audioChunkConsumer;
 
     /// <summary>创建由宿主控制生命周期的频谱服务。 / Creates the host-managed spectrum service.</summary>
     public AudioMonitorService(AudioCaptureDeviceResolver deviceResolver) => _deviceResolver = deviceResolver;
@@ -99,6 +100,47 @@ public sealed class AudioMonitorService : BackgroundService, IMemoryPrunable
         {
             if (_disposed) return;
             InvalidateCapture();
+            WakeWorker();
+        }
+    }
+
+    /// <summary>
+    /// 注册音频样本块消费者（例如 One-Shot AI 歌声检测器）。
+    /// Registers an audio sample chunk consumer (such as the One-Shot AI Vocal Detector).
+    /// </summary>
+    public void AddAudioConsumer(Action<float[], int, int> consumer)
+    {
+        lock (_gate)
+        {
+            _audioChunkConsumer += consumer;
+            _lastDemandTick = Environment.TickCount64;
+            _deviceResolver.RequestScan();
+            WakeWorker();
+        }
+    }
+
+    /// <summary>
+    /// 注销音频样本块消费者。
+    /// Unregisters an audio sample chunk consumer.
+    /// </summary>
+    public void RemoveAudioConsumer(Action<float[], int, int> consumer)
+    {
+        lock (_gate)
+        {
+            _audioChunkConsumer -= consumer;
+        }
+    }
+
+    /// <summary>
+    /// 唤醒采集工作线程（刷新按需采集心跳）。
+    /// Touches loopback capture demand to keep the worker active.
+    /// </summary>
+    public void TouchDemand()
+    {
+        lock (_gate)
+        {
+            _lastDemandTick = Environment.TickCount64;
+            _deviceResolver.RequestScan();
             WakeWorker();
         }
     }
@@ -202,7 +244,7 @@ public sealed class AudioMonitorService : BackgroundService, IMemoryPrunable
             : enumerator.GetDevice(target);
         using var capture = new WasapiRecorderBuilder().WithDevice(device).WithLoopbackCapture().Build();
         var format = capture.WaveFormat;
-        var reader = new LoopbackSampleReader(format, PushSample);
+        var reader = new LoopbackSampleReader(format, PushMonoChunk);
         var stopped = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var deviceId = device.ID;
         lock (_gate)
@@ -257,8 +299,9 @@ public sealed class AudioMonitorService : BackgroundService, IMemoryPrunable
     }
 
     private bool HasDemandCore(int version) => !_disposed && version == _captureVersion &&
-        _pruneLevel < MemoryPruneLevel.DisplayOff && _lastDemandTick != long.MinValue &&
-        Environment.TickCount64 - _lastDemandTick <= 1000;
+        _pruneLevel < MemoryPruneLevel.DisplayOff &&
+        (_audioChunkConsumer != null ||
+         (_lastDemandTick != long.MinValue && Environment.TickCount64 - _lastDemandTick <= 1000));
 
     private void WakeWorker()
     {
@@ -312,11 +355,16 @@ public sealed class AudioMonitorService : BackgroundService, IMemoryPrunable
         _sampleCount = 0;
     }
 
-    private void PushSample(float sample)
+    private void PushMonoChunk(float[] chunk, int count)
     {
-        _sampleRing[_sampleWriteIndex] = sample;
-        _sampleWriteIndex = (_sampleWriteIndex + 1) % _ringSize;
-        _sampleCount = Math.Min(_sampleCount + 1, _ringSize);
+        for (var i = 0; i < count; i++)
+        {
+            _sampleRing[_sampleWriteIndex] = chunk[i];
+            _sampleWriteIndex = (_sampleWriteIndex + 1) % _ringSize;
+            _sampleCount = Math.Min(_sampleCount + 1, _ringSize);
+        }
+
+        _audioChunkConsumer?.Invoke(chunk, count, _sampleRate);
     }
 
     private void CalculateSpectrum(float[] bands, int bandCount)

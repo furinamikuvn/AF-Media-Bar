@@ -172,8 +172,10 @@ public sealed class LyricTimelineTransformPolicyTests
     public void SpeedUp_WithTrimmedIntro_MatchesFromSecondZero()
     {
         // Case: Gió - Jank [ Lyrics // Speed Up ] (SArisu Chill)
-        // Original track: 277s, intro is 19.8s (first line starts at 19.8s).
-        // YouTuber cuts 19.8s intro and speeds up remaining 257.2s by ~1.28x => video duration is 201.2s.
+        // Original track: 277s, intro is 19.8s.
+        // AI Listener detected vocal at second 0 => Intro trimmed = true.
+        OneShotAiListener.SetIntroTrimmedOverride("Gió - Jank [ Lyrics // Speed Up ]", "SArisu Chill", 201.2, true);
+
         var doc = CreateLyricDoc(
             (19.8, 50.0, "Gió nhẹ sang tôi ngỡ trời xuân"),
             (50.0, 75.0, "Vương trên môi nụ hôn của ai"),
@@ -189,6 +191,29 @@ public sealed class LyricTimelineTransformPolicyTests
         // At video second 27.6s, effective should be ~55.0s (in the chorus "Vương trên môi nụ hôn của ai")
         var effectiveAtChorus = LyricTimelineTransformPolicy.ResolvePosition(snapshot, 27.6);
         Assert.AreEqual(55.06, effectiveAtChorus, 0.5);
+    }
+
+    [TestMethod]
+    public void SpeedUp_WithoutTrimmedIntro_KeepsFullIntroScale()
+    {
+        // Case: Track sped up BUT intro was NOT trimmed (only fast intro instruments played)
+        // AI Listener detected no vocal during first 2-3s => Intro trimmed = false.
+        OneShotAiListener.SetIntroTrimmedOverride("Nàng Thơ - Hoàng Dũng [ Speed Up ]", "V-Pop", 200.0, false);
+
+        var doc = CreateLyricDoc(
+            (20.0, 60.0, "Em, ngày em đánh rơi nụ cười vào anh"),
+            (60.0, 120.0, "Phiên khúc 2"),
+            (120.0, 275.0, "Lời kết"));
+
+        var snapshot = CreateSnapshot("Nàng Thơ - Hoàng Dũng [ Speed Up ]", "V-Pop", 200.0, 0.0, doc);
+        var effectiveAtZero = LyricTimelineTransformPolicy.ResolvePosition(snapshot, 0.0);
+
+        // At video second 0, intro should start at 0s, NOT jump to 20s!
+        Assert.AreEqual(0.0, effectiveAtZero, 0.1);
+
+        // At video second ~14.5s (intro ends at 20.0s / (275/200) = 14.54s)
+        var effectiveAtVocalOnset = LyricTimelineTransformPolicy.ResolvePosition(snapshot, 14.55);
+        Assert.AreEqual(20.0, effectiveAtVocalOnset, 0.5);
     }
 
     [TestMethod]

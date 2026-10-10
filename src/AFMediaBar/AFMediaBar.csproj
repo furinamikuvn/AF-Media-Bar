@@ -49,6 +49,7 @@
 </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
     <PackageReference Include="NAudio.Wasapi" Version="3.1.0" />
     <PackageReference Include="Dubya.WindowsMediaController" Version="2.5.6" />
     <PackageReference Include="Lyricify.Lyrics.Helper" Version="0.2.0" />
@@ -109,16 +110,17 @@
     <EmbeddedResource Include="Web\Lyrics\*.html" />
     <EmbeddedResource Include="Web\Lyrics\*.css" />
     <EmbeddedResource Include="Web\Lyrics\*.js" />
+    <EmbeddedResource Include="Assets\Models\silero_vad.onnx" />
   </ItemGroup>
 
   <!-- WebView2's package adds reference XML documentation after the single-file bundle is computed. Those files are not
        runtime dependencies and violate the installer/release contract that the publish directory contains one executable. -->
-  <Target Name="RemoveWebView2ReferenceDocumentation" AfterTargets="Publish"
-          Condition="'$(PublishSingleFile)' == 'true'">
+  <Target Name="RemoveWebView2ReferenceDocumentation" AfterTargets="Publish" Condition="'$(PublishSingleFile)' == 'true'">
     <ItemGroup>
-      <_WebView2ReferenceDocumentation Include="$(PublishDir)Microsoft.Web.WebView2.*.xml" />
+      <_ExtraPublishFiles Include="$(PublishDir)Microsoft.Web.WebView2.*.xml" />
+      <_ExtraPublishFiles Include="$(PublishDir)*.lib" />
     </ItemGroup>
-    <Delete Files="@(_WebView2ReferenceDocumentation)" />
+    <Delete Files="@(_ExtraPublishFiles)" />
   </Target>
 
 </Project>
