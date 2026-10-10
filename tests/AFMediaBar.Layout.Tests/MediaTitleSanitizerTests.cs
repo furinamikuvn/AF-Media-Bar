@@ -171,4 +171,39 @@ public sealed class MediaTitleSanitizerTests
         Assert.IsTrue(scoreOriginal >= LyricsMetadataScore.MinimumScore,
             $"Original candidate matching original request should have high score. Score was: {scoreOriginal}");
     }
+
+    [TestMethod]
+    public void SanitizesVietnameseSpeedUpTitleAndArtistAccurately()
+    {
+        // 1. Đừng làm trái tim anh đau ( speed up ) - Sơn Tùng M-TP
+        var track1 = MediaTitleSanitizer.Sanitize(
+            "Đừng làm trái tim anh đau ( speed up ) - Sơn Tùng M-TP",
+            "𝙔𝙪𝙪 𝙨𝙥𝙚𝙚𝙙 𝙪𝙥🥨",
+            "chrome.exe");
+
+        Assert.AreEqual("Đừng làm trái tim anh đau", track1.Title);
+        Assert.AreEqual("Sơn Tùng M-TP", track1.Artist);
+        Assert.IsFalse(track1.IsExcludedRemix);
+
+        // 2. Nhắn nhủ - Ronboogz (speed up) x yuu speed up🥨
+        var track2 = MediaTitleSanitizer.Sanitize(
+            "Nhắn nhủ - Ronboogz (speed up) x yuu speed up🥨",
+            "𝙔𝙪𝙪 𝙨𝙥𝙚𝙚𝙙 𝙪𝙥🥨",
+            "chrome.exe");
+
+        Assert.AreEqual("Nhắn nhủ", track2.Title);
+        Assert.AreEqual("Ronboogz", track2.Artist);
+        Assert.IsFalse(track2.IsExcludedRemix);
+    }
+
+    [TestMethod]
+    public void MetadataScoreAcceptsSwappedTitleAndArtistWhenBothMatch()
+    {
+        // 即使请求中的 Title 与 Artist 发生颠倒，当双方元数据互换完全吻合时仍应判定为高分匹配
+        var invertedRequest = new LyricsRequest("Sơn Tùng M-TP", "Đừng làm trái tim anh đau", "", 217.0, null);
+        var score = LyricsMetadataScore.Calculate(invertedRequest, "Đừng Làm Trái Tim Anh Đau", "Sơn Tùng M-TP", "", 217.0);
+
+        Assert.IsTrue(score >= LyricsMetadataScore.MinimumScore,
+            $"Swapped title and artist candidate should still match with high score. Score was: {score}");
+    }
 }

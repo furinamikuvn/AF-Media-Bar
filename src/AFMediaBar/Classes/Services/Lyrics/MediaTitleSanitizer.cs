@@ -140,8 +140,9 @@ public static partial class MediaTitleSanitizer
             finalArtist = cleanedChannel;
         }
 
-        // 后置微调：移除标题中残留的 tempo 标记
+        // 后置微调：移除标题中残留的 tempo 标记并清洗歌手名
         finalTitle = CleanRemainingTempoTags(finalTitle);
+        finalArtist = CleanArtistName(finalArtist, cleanedChannel);
 
         return new(finalTitle, string.IsNullOrWhiteSpace(finalArtist) ? cleanedChannel : finalArtist, isExcluded);
     }
@@ -168,7 +169,24 @@ public static partial class MediaTitleSanitizer
             }
         }
 
-        // 2. 合作歌手标识检查 (ft., feat., x, &)
+        // 2. 检查两部分是否是明显歌曲名或明显艺人名
+        var isTitleA = IsLikelySongTitle(partA);
+        var isTitleB = IsLikelySongTitle(partB);
+        var isArtistA = IsLikelyArtist(partA);
+        var isArtistB = IsLikelyArtist(partB);
+
+        // 如果 partA 是歌名且 partB 是歌手 -> (partA, partB)
+        if (isTitleA && isArtistB)
+        {
+            return (partA, partB);
+        }
+        // 如果 partB 是歌名且 partA 是歌手 -> (partB, partA)
+        if (isTitleB && isArtistA)
+        {
+            return (partB, partA);
+        }
+
+        // 3. 合作歌手标识检查 (ft., feat., x, &)
         var hasCollabA = CollaborationRegex().IsMatch(partA);
         var hasCollabB = CollaborationRegex().IsMatch(partB);
 
@@ -181,40 +199,91 @@ public static partial class MediaTitleSanitizer
             return (partA, partB);
         }
 
-        // 3. 特殊形态分析：如果 partB 是全大写英文句柄或简短艺人名，而 partA 是多词完整歌曲名
-        if (IsArtistHandle(partB) && !IsArtistHandle(partA))
+        // 4. 单侧艺人特征
+        if (isArtistB && !isArtistA)
         {
             return (partA, partB);
         }
-        if (IsArtistHandle(partA) && !IsArtistHandle(partB))
+        if (isArtistA && !isArtistB)
         {
             return (partB, partA);
         }
 
-        // 4. 惯例回退
-        // 对于破折号（-），西方与国际常规大多为 Artist - Title（如 Charlie Puth - Dangerously）
-        // 但如果 Part A 包含很多越南语长句而 Part B 为单一词汇，则优先作为 Title - Artist
-        if (isDashSeparator)
+        // 5. 单侧歌名特征
+        if (isTitleA && !isTitleB)
         {
-            return (partB, partA); // 默认 Artist - Title: Title = partB, Artist = partA
+            return (partA, partB);
+        }
+        if (isTitleB && !isTitleA)
+        {
+            return (partB, partA);
         }
 
-        // 对于竖线（|），常规多为 Title | Artist (如 BẠC PHẬN | ICM x JACK)
+        // 6. 惯例回退：在网络视频及现代 YouTube 视频标题中，Title - Artist 占据绝大多数
         return (partA, partB);
     }
 
-    private static bool IsArtistHandle(string text)
+    private static bool IsLikelyArtist(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return false;
         var trimmed = text.Trim();
 
-        // 单个全大写单词，如 "PHUCXP", "JACK", "MONO"
+        // 1. 命中知名歌手名称或艺人后缀/标记
+        if (KnownArtistsRegex().IsMatch(trimmed)) return true;
+        if (ArtistMarkerRegex().IsMatch(trimmed)) return true;
+
+        // 2. 单个全大写/缩写词（如 "PHUCXP", "JACK", "MONO", "IU", "MCK"）
         if (trimmed.Length >= 2 && trimmed.All(c => char.IsAsciiLetterUpper(c) || char.IsDigit(c) || c == '_' || c == '-'))
         {
             return true;
         }
 
+        // 3. 简短单一艺人艺名（如 "Ronboogz", "Chillies", "Soobin", "Erik"）：单个词且首字母大写
+        if (!trimmed.Contains(' ') && trimmed.Length >= 3 && trimmed.Length <= 15 &&
+            char.IsUpper(trimmed[0]) && trimmed.Skip(1).All(char.IsLetter))
+        {
+            return true;
+        }
+
         return false;
+    }
+
+    private static bool IsLikelySongTitle(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var trimmed = text.Trim();
+
+        // 1. 包含典型越南歌曲词汇/句式词（如 "đừng làm trái tim anh đau", "bước qua nhau", "nhắn nhủ"）
+        if (VietnameseSongTitleKeywordsRegex().IsMatch(trimmed))
+        {
+            return true;
+        }
+
+        // 2. 词数达到 3 个或以上的多词短语（歌曲名通常比单一歌手名更长）
+        var wordCount = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+        if (wordCount >= 3)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string CleanArtistName(string? artist, string? channelName)
+    {
+        if (string.IsNullOrWhiteSpace(artist)) return string.Empty;
+        var text = artist.Trim();
+
+        // 剥离频道宣传/二创合作噪音（如 "x yuu speed up", "ft. Lofi chill"）
+        text = TrailingPromoOrTempoCollabRegex().Replace(text, string.Empty).Trim();
+
+        // 移除单独的 tempo 标记
+        text = TempoTagRegex().Replace(text, string.Empty).Trim();
+
+        // 移除 Emoji 及特殊修饰符号
+        text = EmojiOrSymbolRegex().Replace(text, string.Empty).Trim();
+
+        return text.Trim(' ', '-', '|', '•', '_', '/', '&', ',');
     }
 
     private static bool ContainsIgnoreCase(string source, string target) =>
@@ -315,4 +384,19 @@ public static partial class MediaTitleSanitizer
 
     [GeneratedRegex(@"\b(speed\s*up|sped\s*up|speedup|lo-?fi|slowed(\s*(\+|\&|and)\s*reverb)?)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex TempoTagRegex();
+
+    [GeneratedRegex(@"\b(sơn\s*tùng|son\s*tung|m-tp|mtp|ronboogz|phucxp|jack|j97|k-icm|icm|tăng\s*duy\s*tân|tang\s*duy\s*tan|vũ\.|vũ\b|đen\s*vâu|đen\b|mono|grey\s*d|chillies|da\s*lab|erik|min\b|soobin|hieuthuhai|mck|tlinh|amee|phan\s*mạnh\s*quỳnh|phan\s*manh\s*quynh|hoàng\s*dũng|hoang\s*dung|wren\s*evans|b\s*ray|thành\s*đạt|thanh\s*dat|đức\s*phúc|duc\s*phuc|hòa\s*minzy|hoa\s*minzy|phương\s*ly|phuong\s*ly|noo\s*phước\s*thịnh|noo\s*phuoc\s*thinh|bích\s*phương|bich\s*phuong|bảo\s*anh|bao\s*anh|trung\s*quân|trung\s*quan|văn\s*mai\s*hương|van\s*mai\s*huong|quân\s*a\.?p|quan\s*a\.?p|khắc\s*việt|khac\s*viet|hoài\s*lâm|hoai\s*lam|charlie\s*puth|ed\s*sheeran|taylor\s*swift|alan\s*walker|iu|bts|blackpink|aespa|newjeans|twice|billie\s*eilish|justin\s*bieber|adele|the\s*weeknd)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex KnownArtistsRegex();
+
+    [GeneratedRegex(@"\b(m-tp|official|records|entertainment|productions|studio|band|orchestra|choir|prod\.|dj\b|mc\b)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ArtistMarkerRegex();
+
+    [GeneratedRegex(@"\b(đừng|làm|cho|nơi|chúng\s*ta|của|ngày|mai|khi|sau|nếu|lời|trái\s*tim|đau|nỗi\s*sầu|nhắn\s*nhủ|bạc\s*phận|sóng\s*gió|hồng\s*nhan|cắt\s*đôi|bước\s*qua|tình|như|thấy|anh|em|tôi|người|yêu|thương|chuyện|đôi\s*ta|dấu\s*mưa|ánh\s*nắng|hẹn\s*ước|mưa|gió|nắng|sầu|nhớ|quên|đi|về)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex VietnameseSongTitleKeywordsRegex();
+
+    [GeneratedRegex(@"\s*(?:x|ft\.|feat\.|featuring|&)\s*.*?(?:speed\s*up|sped\s*up|lo-?fi|slowed|remix|nightcore|chill).*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex TrailingPromoOrTempoCollabRegex();
+
+    [GeneratedRegex(@"[\p{Cs}\p{So}\p{Sk}\p{Cn}]")]
+    private static partial Regex EmojiOrSymbolRegex();
 }

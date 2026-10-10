@@ -62,7 +62,34 @@ internal static partial class LyricsMetadataScore
                            from candidateArtist in candidateArtists
                            select Compare(requestArtist, candidateArtist)).DefaultIfEmpty(0).Max();
         var albumScore = albums.Select(album => Compare(request.Album, album)).DefaultIfEmpty(0).Max();
-        return new(titleScore, artistScore, albumScore, CompareDuration(request.DurationSeconds, duration), null);
+        var durationScore = CompareDuration(request.DurationSeconds, duration);
+        var directBreakdown = new Breakdown(titleScore, artistScore, albumScore, durationScore, null);
+
+        if (directBreakdown.TotalScore >= MinimumScore)
+        {
+            return directBreakdown;
+        }
+
+        // 兜底反向容错：针对某些播放器或元数据源误将标题与歌手颠倒的情况
+        // （例如 request.Title = "Sơn Tùng M-TP", request.Artist = "Đừng làm trái tim anh đau"）
+        // 必须要求互换后的 Title 与 Artist 均达到高相似度门槛（>= 0.65），以防非同名曲目虚假匹配
+        if (!string.IsNullOrWhiteSpace(request.Artist))
+        {
+            var swappedTitleScore = titles.Select(title => CompareTitle(request.Artist, title)).DefaultIfEmpty(0).Max();
+            var swappedArtistScore = (from candidateArtist in candidateArtists
+                                      select Compare(request.Title, candidateArtist)).DefaultIfEmpty(0).Max();
+
+            if (swappedTitleScore >= 0.65 && swappedArtistScore >= 0.65)
+            {
+                var swappedBreakdown = new Breakdown(swappedTitleScore, swappedArtistScore, albumScore, durationScore, null);
+                if (swappedBreakdown.TotalScore > directBreakdown.TotalScore)
+                {
+                    return swappedBreakdown;
+                }
+            }
+        }
+
+        return directBreakdown;
     }
 
     private static double CompareTitle(string? left, string? right)

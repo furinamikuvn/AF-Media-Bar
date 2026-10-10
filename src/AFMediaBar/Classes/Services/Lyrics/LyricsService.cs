@@ -10,9 +10,9 @@ namespace AFMediaBar.Classes.Services.Lyrics;
 public sealed class LyricsService
 {
     /// <summary>单源等待上限。/ Per-source wait limit.</summary>
-    public static readonly TimeSpan DefaultPerSourceBudget = TimeSpan.FromSeconds(6);
+    public static readonly TimeSpan DefaultPerSourceBudget = TimeSpan.FromSeconds(10);
     /// <summary>包括优先阶段的总等待上限。/ Total wait limit including the preferred stage.</summary>
-    public static readonly TimeSpan DefaultTotalBudget = TimeSpan.FromSeconds(12);
+    public static readonly TimeSpan DefaultTotalBudget = TimeSpan.FromSeconds(18);
     private readonly IReadOnlyList<ILyricsProvider> _providers;
     private readonly TimeSpan _perSourceBudget;
     private readonly TimeSpan _totalBudget;
