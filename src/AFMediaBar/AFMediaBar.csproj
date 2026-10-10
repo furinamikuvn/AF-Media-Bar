@@ -113,12 +113,12 @@
 
   <!-- WebView2's package adds reference XML documentation after the single-file bundle is computed. Those files are not
        runtime dependencies and violate the installer/release contract that the publish directory contains one executable. -->
-  <Target Name="RemoveWebView2ReferenceDocumentation" AfterTargets="Publish" Condition="'$(PublishSingleFile)' == 'true'">
+  <Target Name="RemoveWebView2ReferenceDocumentation" AfterTargets="Publish"
+          Condition="'$(PublishSingleFile)' == 'true'">
     <ItemGroup>
-      <_ExtraPublishFiles Include="$(PublishDir)Microsoft.Web.WebView2.*.xml" />
-      <_ExtraPublishFiles Include="$(PublishDir)*.lib" />
+      <_WebView2ReferenceDocumentation Include="$(PublishDir)Microsoft.Web.WebView2.*.xml" />
     </ItemGroup>
-    <Delete Files="@(_ExtraPublishFiles)" />
+    <Delete Files="@(_WebView2ReferenceDocumentation)" />
   </Target>
 
 </Project>
