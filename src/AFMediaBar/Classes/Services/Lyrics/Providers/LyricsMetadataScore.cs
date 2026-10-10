@@ -21,8 +21,15 @@ internal static partial class LyricsMetadataScore
     internal readonly record struct Breakdown(double Title, double Artist, double Album, double Duration,
         double? Fingerprint)
     {
-        public double UnroundedScore => 100 * (Fingerprint ??
-            (TitleWeight * Title + ArtistWeight * Artist + AlbumWeight * Album + DurationWeight * Duration));
+        public double UnroundedScore
+        {
+            get
+            {
+                if (Fingerprint is { } fp) return 100 * fp;
+                if (Title <= 0) return 0;
+                return 100 * (TitleWeight * Title + ArtistWeight * Artist + AlbumWeight * Album + DurationWeight * Duration);
+            }
+        }
         public int TotalScore => (int)Math.Round(UnroundedScore);
     }
 
@@ -49,13 +56,33 @@ internal static partial class LyricsMetadataScore
             return new(0, 0, 0, 0, scores.DefaultIfEmpty(0).Max());
         }
 
-        var titleScore = titles.Select(title => Compare(request.Title, title)).DefaultIfEmpty(0).Max();
+        var titleScore = titles.Select(title => CompareTitle(request.Title, title)).DefaultIfEmpty(0).Max();
         // Preserve the existing best-artist-match policy, now comparing individual artists on both sides.
         var artistScore = (from requestArtist in requestArtists
                            from candidateArtist in candidateArtists
                            select Compare(requestArtist, candidateArtist)).DefaultIfEmpty(0).Max();
         var albumScore = albums.Select(album => Compare(request.Album, album)).DefaultIfEmpty(0).Max();
         return new(titleScore, artistScore, albumScore, CompareDuration(request.DurationSeconds, duration), null);
+    }
+
+    private static double CompareTitle(string? left, string? right)
+    {
+        left = left?.Trim().ToLowerInvariant() ?? string.Empty;
+        right = right?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (left.Length == 0 && right.Length == 0) return 1;
+        if (left.Length == 0 || right.Length == 0) return 0;
+
+        // Strict Remix Match:
+        // A remix track must only match a candidate that is also a remix.
+        // An original non-remix track must not match a remix candidate.
+        var leftIsRemix = RemixRegex().IsMatch(left);
+        var rightIsRemix = RemixRegex().IsMatch(right);
+        if (leftIsRemix != rightIsRemix)
+        {
+            return 0;
+        }
+
+        return Similarity.Similarity(left, right);
     }
 
     private static double Compare(string? left, string? right)
@@ -82,4 +109,7 @@ internal static partial class LyricsMetadataScore
 
     [GeneratedRegex(@"[\p{P}\p{S}]")]
     private static partial Regex NonWordCharacters();
+
+    [GeneratedRegex(@"\b(remix|remixes|mashup)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex RemixRegex();
 }

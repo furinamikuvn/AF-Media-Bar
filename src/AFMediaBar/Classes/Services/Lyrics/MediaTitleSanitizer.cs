@@ -36,19 +36,20 @@ public static partial class MediaTitleSanitizer
             return true;
         }
 
-        // 3. 包含 Remix / Mix / Mashup / DJ / PT Remix，且伴随越南语字符或越南歌曲标识
-        if (RemixIndicatorRegex().IsMatch(fullText))
+        // 3. TikTok Remix 专有混音标识
+        if (TikTokRemixRegex().IsMatch(fullText))
         {
-            if (VietnameseDiacriticsRegex().IsMatch(fullText) ||
-                VietnameseKeywordsRegex().IsMatch(fullText) ||
-                TikTokRemixRegex().IsMatch(fullText))
-            {
-                return true;
-            }
+            return true;
         }
 
-        // 4. Bass Boosted / Nonstop 搭配越南语特征
-        if (BassBoostedOrNonstopRegex().IsMatch(fullText) &&
+        // 4. Bass Boosted / Nonstop / Nightcore / DJ 搭配越南语特征（纯非官方混音）
+        if (BassBoostedOrNonstopOrNightcoreRegex().IsMatch(fullText) &&
+            (VietnameseDiacriticsRegex().IsMatch(fullText) || VietnameseKeywordsRegex().IsMatch(fullText)))
+        {
+            return true;
+        }
+
+        if (DjIndicatorRegex().IsMatch(fullText) &&
             (VietnameseDiacriticsRegex().IsMatch(fullText) || VietnameseKeywordsRegex().IsMatch(fullText)))
         {
             return true;
@@ -282,8 +283,11 @@ public static partial class MediaTitleSanitizer
     [GeneratedRegex(@"hot\s*tik\s*tok\s*remix|hot\s*tiktok\s*remix|remix\s*tik\s*tok|remix\s*tiktok|trend\s*tiktok\s*remix", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex TikTokRemixRegex();
 
-    [GeneratedRegex(@"bass\s*boosted|bassboost|nonstop", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex BassBoostedOrNonstopRegex();
+    [GeneratedRegex(@"bass\s*boosted|bassboost|nonstop|nightcore", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex BassBoostedOrNonstopOrNightcoreRegex();
+
+    [GeneratedRegex(@"\bdj\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex DjIndicatorRegex();
 
     [GeneratedRegex(@"^\s*(\[[^\]]*\]|【[^】]*】)\s*")]
     private static partial Regex LeadingMediaTagRegex();

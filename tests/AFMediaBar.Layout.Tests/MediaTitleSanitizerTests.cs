@@ -1,4 +1,5 @@
-// 验证 YouTube 及网络媒体标题清洗与越南 Remix 自动排除策略。
+// 验证 YouTube 及网络媒体标题清洗、非官方混音排除与严格 Remix 匹配策略。
+using AFMediaBar.Classes.Models;
 using AFMediaBar.Classes.Services.Lyrics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -8,7 +9,6 @@ namespace AFMediaBar.Layout.Tests;
 public sealed class MediaTitleSanitizerTests
 {
     [TestMethod]
-    [DataRow("Bạc Phận Remix", "K-ICM x Jack")]
     [DataRow("Áng Mây Vô Tình Remix (Nightcore) - DBlue x Chu Duyên", "DBlue")]
     [DataRow("[Nightcore] Mashup Nỗi Đau Xót Xa x Em Có Ổn Không (PT Remix)", "")]
     [DataRow("Cắt Đôi Nỗi Sầu (Vinahouse 2024)", "Tăng Duy Tân")]
@@ -17,16 +17,14 @@ public sealed class MediaTitleSanitizerTests
     [DataRow("Lắc Cư Quẩy Tung Nóc", "DJ")]
     [DataRow("Nỗi Đau Xót Xa (Đại Mèo Remix)", "")]
     [DataRow("Bạc Phận (Cukak Remix)", "Jack")]
-    [DataRow("Bac Phan Remix", "Jack")]
-    [DataRow("Cat Doi Noi Sau (Remix)", "Tang Duy Tan")]
     [DataRow("Ngay Mai Nguoi Ta Lay Chong (Viet Mix)", "")]
     [DataRow("Hot TikTok Remix - Em Có Ổn Không", "")]
     [DataRow("Tình Đệ Tử - Vinahey Nhạc Sàn Cực Bốc", "")]
     [DataRow("Mashup Nhạc Trẻ Remix Bass Boosted", "")]
-    public void ExcludesVietnameseRemixTracks(string title, string artist)
+    public void ExcludesUnofficialVietnameseRemixTracks(string title, string artist)
     {
         Assert.IsTrue(MediaTitleSanitizer.IsExcludedVietnameseRemix(title, artist),
-            $"Track '{title}' by '{artist}' should be identified as an excluded Vietnamese remix.");
+            $"Track '{title}' by '{artist}' should be identified as an excluded unofficial Vietnamese remix.");
     }
 
     [TestMethod]
@@ -39,10 +37,13 @@ public sealed class MediaTitleSanitizerTests
     [DataRow("Charlie Puth - Dangerously [Official Music Video]", "Charlie Puth")]
     [DataRow("Chuyện Đôi Ta - Emcee L (Da LAB) ft. Muội | Official MV", "Da LAB Official")]
     [DataRow("Phan Mạnh Quỳnh - Sau Lời Từ Khước (from MAI Soundtrack) | Lyric Video", "Phan Mạnh Quỳnh")]
-    public void AllowsOriginalSpeedUpLofiAndWesternTracks(string title, string artist)
+    [DataRow("Lạc Trôi (Triple D Remix)", "Sơn Tùng M-TP")]
+    [DataRow("Có Chắc Yêu Là Đây (Onionn Remix)", "Sơn Tùng M-TP")]
+    [DataRow("Bạc Phận (Remix)", "Jack")]
+    public void AllowsOriginalSpeedUpLofiAndOfficialRemixTracks(string title, string artist)
     {
         Assert.IsFalse(MediaTitleSanitizer.IsExcludedVietnameseRemix(title, artist),
-            $"Track '{title}' by '{artist}' should not be excluded.");
+            $"Track '{title}' by '{artist}' should not be excluded upfront.");
     }
 
     [TestMethod]
@@ -114,7 +115,7 @@ public sealed class MediaTitleSanitizerTests
     public void MarksExcludedRemixInSanitizedResult()
     {
         var result = MediaTitleSanitizer.Sanitize(
-            "Bạc Phận Remix (Vinahouse 2024)",
+            "Cắt Đôi Nỗi Sầu (Vinahouse 2024)",
             "DJ Đại Mèo",
             "chrome.exe");
 
@@ -122,14 +123,14 @@ public sealed class MediaTitleSanitizerTests
     }
 
     [TestMethod]
-    public void EligibilityPolicyRejectsVietnameseRemixEvenWhenBrowserLyricsAllowed()
+    public void EligibilityPolicyRejectsUnofficialVietnameseRemix()
     {
         Assert.IsFalse(LyricsMediaEligibilityPolicy.ShouldFetch(
             "chrome.exe",
             isVideo: false,
             allowBrowserAndVideoLyrics: true,
-            title: "Bạc Phận Remix",
-            artist: "Jack"));
+            title: "Cắt Đôi Nỗi Sầu (Vinahouse 2024)",
+            artist: "DJ Đại Mèo"));
 
         Assert.IsTrue(LyricsMediaEligibilityPolicy.ShouldFetch(
             "chrome.exe",
@@ -137,5 +138,37 @@ public sealed class MediaTitleSanitizerTests
             allowBrowserAndVideoLyrics: true,
             title: "Bạc Phận",
             artist: "Jack"));
+    }
+
+    [TestMethod]
+    public void StrictRemixPolicyRejectsOriginalTrackWhenRequestIsRemix()
+    {
+        var request = new LyricsRequest("Lạc Trôi (Triple D Remix)", "Sơn Tùng M-TP", "Album", 255.0, null);
+
+        // 候选曲目为原版（非 Remix），评分应直接归零，低于门槛
+        var scoreOriginal = LyricsMetadataScore.Calculate(request, "Lạc Trôi", "Sơn Tùng M-TP", "Album", 255.0);
+        Assert.IsTrue(scoreOriginal < LyricsMetadataScore.MinimumScore,
+            $"Original track should not match remix request. Score was: {scoreOriginal}");
+
+        // 候选曲目同样为 Remix，允许匹配且达到高分
+        var scoreRemix = LyricsMetadataScore.Calculate(request, "Lạc Trôi (Triple D Remix)", "Sơn Tùng M-TP", "Album", 255.0);
+        Assert.IsTrue(scoreRemix >= LyricsMetadataScore.MinimumScore,
+            $"Remix candidate matching remix request should have high score. Score was: {scoreRemix}");
+    }
+
+    [TestMethod]
+    public void StrictRemixPolicyRejectsRemixTrackWhenRequestIsOriginal()
+    {
+        var request = new LyricsRequest("Lạc Trôi", "Sơn Tùng M-TP", "Album", 255.0, null);
+
+        // 候选曲目为 Remix，原版请求不应采纳
+        var scoreRemix = LyricsMetadataScore.Calculate(request, "Lạc Trôi (Triple D Remix)", "Sơn Tùng M-TP", "Album", 255.0);
+        Assert.IsTrue(scoreRemix < LyricsMetadataScore.MinimumScore,
+            $"Remix candidate should not match original request. Score was: {scoreRemix}");
+
+        // 候选曲目为原版，正常匹配
+        var scoreOriginal = LyricsMetadataScore.Calculate(request, "Lạc Trôi", "Sơn Tùng M-TP", "Album", 255.0);
+        Assert.IsTrue(scoreOriginal >= LyricsMetadataScore.MinimumScore,
+            $"Original candidate matching original request should have high score. Score was: {scoreOriginal}");
     }
 }
