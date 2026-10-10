@@ -245,4 +245,40 @@ public sealed class MediaTitleSanitizerTests
         Assert.IsTrue(score >= LyricsMetadataScore.MinimumScore,
             $"Swapped title and artist candidate should still match with high score. Score was: {score}");
     }
+
+    [TestMethod]
+    public void SanitizesInternationalAndChineseOstTracksWithMultipleSegments()
+    {
+        // 1. Attack on Titan - Season 4 | The Rumbling - SiM
+        var track1 = MediaTitleSanitizer.Sanitize(
+            "Attack on Titan - Season 4 | The Rumbling - SiM",
+            "Crunchyroll",
+            "chrome.exe");
+        Assert.AreEqual("The Rumbling", track1.Title);
+        Assert.AreEqual("SiM", track1.Artist);
+
+        // 2. Arcane | Enemy - Imagine Dragons
+        var track2 = MediaTitleSanitizer.Sanitize(
+            "Arcane | Enemy - Imagine Dragons",
+            "League of Legends",
+            "chrome.exe");
+        Assert.AreEqual("Enemy", track2.Title);
+        Assert.AreEqual("Imagine Dragons", track2.Artist);
+
+        // 3. 仙剑奇侠传三 - 原声带 | 生生世世爱 - 吴雨霏
+        var track3 = MediaTitleSanitizer.Sanitize(
+            "仙剑奇侠传三 - 原声带 | 生生世世爱 - 吴雨霏",
+            "OST Channel",
+            "chrome.exe");
+        Assert.AreEqual("生生世世爱", track3.Title);
+        Assert.AreEqual("吴雨霏", track3.Artist);
+
+        // 4. Genshin Impact | La vaguelette - HOYO-MiX
+        var track4 = MediaTitleSanitizer.Sanitize(
+            "Genshin Impact | La vaguelette - HOYO-MiX",
+            "Genshin Impact",
+            "chrome.exe");
+        Assert.AreEqual("La vaguelette", track4.Title);
+        Assert.AreEqual("HOYO-MiX", track4.Artist);
+    }
 }

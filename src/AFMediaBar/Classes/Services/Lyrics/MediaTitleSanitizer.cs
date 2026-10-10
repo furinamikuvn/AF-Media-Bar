@@ -99,23 +99,42 @@ public static partial class MediaTitleSanitizer
             var seg1 = validSegments[0];
             var seg2 = validSegments[1];
 
-            // 关键特例：如果 seg1 本身已经包含了破折号且能有效拆分为两段（如 "Lời Yêu Ngây Dại - Kha" 或 "Người Em Cố Đô - Rum x Daa"），
-            // 则说明 seg1 自身已经是一套完整的 Title - Artist，而后续的 seg2 （如 "Ibuki - Blue Archive Live2D" 或 "Speed Up Songs"）
-            // 只是背景视频或次级修饰信息，不应将 seg1 与 seg2 强行当成 Title 与 Artist。
             var seg1DashMatch = DashOrUnderscoreSeparatorRegex().Match(seg1);
-            if (seg1DashMatch.Success)
+            var seg2DashMatch = DashOrUnderscoreSeparatorRegex().Match(seg2);
+
+            var isSeg1Container = FranchiseOrContainerRegex().IsMatch(seg1);
+            var isSeg2Container = FranchiseOrContainerRegex().IsMatch(seg2) || IsPureNoiseSegment(seg2);
+
+            // 1. 如果 seg1 明显是剧集/游戏/容器标识（如 "Attack on Titan - Season 4" 或 "Arcane"），
+            // 而 seg2 才是具体曲目（如 "The Rumbling - SiM" 或 "Enemy - Imagine Dragons"）：优先拆解 seg2
+            if (isSeg1Container && seg2DashMatch.Success)
             {
-                var left = seg1[..seg1DashMatch.Index].Trim();
-                var right = seg1[(seg1DashMatch.Index + seg1DashMatch.Length)..].Trim();
-                if (!IsPureNoiseSegment(left) && !IsPureNoiseSegment(right))
+                var left2 = seg2[..seg2DashMatch.Index].Trim();
+                var right2 = seg2[(seg2DashMatch.Index + seg2DashMatch.Length)..].Trim();
+                (finalTitle, finalArtist) = DisambiguateTitleAndArtist(left2, right2, cleanedChannel, isDashSeparator: true);
+            }
+            // 2. 如果 seg1 包含破折号且不是剧集容器，而 seg2 是修饰背景/视频/频道（如 "Lời Yêu Ngây Dại - Kha | Ibuki - Blue Archive Live2D"）：优先取 seg1
+            else if (seg1DashMatch.Success && !isSeg1Container)
+            {
+                var left1 = seg1[..seg1DashMatch.Index].Trim();
+                var right1 = seg1[(seg1DashMatch.Index + seg1DashMatch.Length)..].Trim();
+                if (!IsPureNoiseSegment(left1) && !IsPureNoiseSegment(right1))
                 {
-                    (finalTitle, finalArtist) = DisambiguateTitleAndArtist(left, right, cleanedChannel, isDashSeparator: true);
+                    (finalTitle, finalArtist) = DisambiguateTitleAndArtist(left1, right1, cleanedChannel, isDashSeparator: true);
                 }
                 else
                 {
                     (finalTitle, finalArtist) = DisambiguateTitleAndArtist(seg1, seg2, cleanedChannel, isDashSeparator: false);
                 }
             }
+            // 3. 如果 seg1 没有破折号，但 seg2 包含破折号（如 "Genshin Impact | La vaguelette - HOYO-MiX"）：优先拆解 seg2
+            else if (!seg1DashMatch.Success && seg2DashMatch.Success)
+            {
+                var left2 = seg2[..seg2DashMatch.Index].Trim();
+                var right2 = seg2[(seg2DashMatch.Index + seg2DashMatch.Length)..].Trim();
+                (finalTitle, finalArtist) = DisambiguateTitleAndArtist(left2, right2, cleanedChannel, isDashSeparator: true);
+            }
+            // 4. 标准常规：seg1 与 seg2 分别作为 Title 与 Artist（如 "BẠC PHẬN | ICM x JACK" 或 "周杰伦 | 告白气球"）
             else
             {
                 (finalTitle, finalArtist) = DisambiguateTitleAndArtist(seg1, seg2, cleanedChannel, isDashSeparator: false);
@@ -253,13 +272,6 @@ public static partial class MediaTitleSanitizer
 
         // 2. 单个全大写/缩写词（如 "PHUCXP", "JACK", "MONO", "IU", "MCK"）
         if (trimmed.Length >= 2 && trimmed.All(c => char.IsAsciiLetterUpper(c) || char.IsDigit(c) || c == '_' || c == '-'))
-        {
-            return true;
-        }
-
-        // 3. 简短单一艺人艺名（如 "Ronboogz", "Chillies", "Soobin", "Erik"）：单个词且首字母大写
-        if (!trimmed.Contains(' ') && trimmed.Length >= 3 && trimmed.Length <= 15 &&
-            char.IsUpper(trimmed[0]) && trimmed.Skip(1).All(char.IsLetter))
         {
             return true;
         }
@@ -415,7 +427,7 @@ public static partial class MediaTitleSanitizer
     [GeneratedRegex(@"\b(speed\s*up|sped\s*up|speedup|lo-?fi|slowed(\s*(\+|\&|and)\s*reverb)?)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex TempoTagRegex();
 
-    [GeneratedRegex(@"\b(sơn\s*tùng|son\s*tung|m-tp|mtp|ronboogz|phucxp|jack|j97|k-icm|icm|tăng\s*duy\s*tân|tang\s*duy\s*tan|vũ\.|vũ\b|đen\s*vâu|đen\b|mono|grey\s*d|chillies|da\s*lab|erik|min\b|soobin|hieuthuhai|mck|tlinh|amee|phan\s*mạnh\s*quỳnh|phan\s*manh\s*quynh|hoàng\s*dũng|hoang\s*dung|wren\s*evans|b\s*ray|thành\s*đạt|thanh\s*dat|đức\s*phúc|duc\s*phuc|hòa\s*minzy|hoa\s*minzy|phương\s*ly|phuong\s*ly|noo\s*phước\s*thịnh|noo\s*phuoc\s*thinh|bích\s*phương|bich\s*phuong|bảo\s*anh|bao\s*anh|trung\s*quân|trung\s*quan|văn\s*mai\s*hương|van\s*mai\s*huong|quân\s*a\.?p|quan\s*a\.?p|khắc\s*việt|khac\s*viet|hoài\s*lâm|hoai\s*lam|charlie\s*puth|ed\s*sheeran|taylor\s*swift|alan\s*walker|iu|bts|blackpink|aespa|newjeans|twice|billie\s*eilish|justin\s*bieber|adele|the\s*weeknd)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\b(sơn\s*tùng|son\s*tung|m-tp|mtp|ronboogz|phucxp|jack|j97|k-icm|icm|tăng\s*duy\s*tân|tang\s*duy\s*tan|vũ\.|vũ\b|đen\s*vâu|đen\b|mono|grey\s*d|chillies|da\s*lab|erik|min\b|soobin|hieuthuhai|mck|tlinh|amee|phan\s*mạnh\s*quỳnh|phan\s*manh\s*quynh|hoàng\s*dũng|hoang\s*dung|wren\s*evans|b\s*ray|thành\s*đạt|thanh\s*dat|đức\s*phúc|duc\s*phuc|hòa\s*minzy|hoa\s*minzy|phương\s*ly|phuong\s*ly|noo\s*phước\s*thịnh|noo\s*phuoc\s*thinh|bích\s*phương|bich\s*phuong|bảo\s*anh|bao\s*anh|trung\s*quân|trung\s*quan|văn\s*mai\s*hương|van\s*mai\s*huong|quân\s*a\.?p|quan\s*a\.?p|khắc\s*việt|khac\s*viet|hoài\s*lâm|hoai\s*lam|charlie\s*puth|ed\s*sheeran|taylor\s*swift|alan\s*walker|iu|bts|blackpink|aespa|newjeans|twice|billie\s*eilish|justin\s*bieber|adele|the\s*weeknd|imagine\s*dragons|hoyo-?mix|gemn|sim\b|kana-?boon|queen|coldplay|one\s*republic|linkin\s*park|radwimps|lisa\b|aimer|milet|yoasobi|kenshi\s*yonezu|king\s*gnu)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex KnownArtistsRegex();
 
     [GeneratedRegex(@"\b(m-tp|official|records|entertainment|productions|studio|band|orchestra|choir|prod\.|dj\b|mc\b)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
@@ -435,4 +447,7 @@ public static partial class MediaTitleSanitizer
 
     [GeneratedRegex(@"^(?:speed\s*up\s*songs?|sped\s*up\s*songs?|nhạc\s*chill(\s*(?:tiktok|buồn|gây\s*nghiện))?|chill\s*songs?|nhạc\s*(?:hot\s*)?tiktok|trend\s*tiktok|.*(?:blue\s*archive|genshin\s*impact|honkai|live2d|wallpaper|amv|mmd|anime\s*mv).*)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex PureNoiseThemeRegex();
+
+    [GeneratedRegex(@"\b(season\s*\d*|episode\s*\d*|ep\s*\d*|tập\s*\d*|ost|soundtrack|bgm|op\s*\d*|ed\s*\d*|opening|ending|theme\s*song|live2d|wallpaper|blue\s*archive|genshin\s*impact|honkai|league\s*of\s*legends|arcane|naruto|anime\s*mv|amv|mmd|原声带|插曲|片头曲|片尾曲|主题曲|角色曲|第\s*\d+\s*[季期集])\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex FranchiseOrContainerRegex();
 }
