@@ -32,6 +32,11 @@ public sealed class LyricsService
     public async Task<LyricsResult?> GetLyricsAsync(LyricsRequest request, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (MediaTitleSanitizer.IsExcludedVietnameseRemix(request.Title, request.Artist))
+        {
+            return null;
+        }
+
         var settings = SettingsManager.Current;
         var effectiveRequest = request with
         {

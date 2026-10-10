@@ -25,6 +25,9 @@ internal static class LyricsRetrievalPolicy
 
     // Current-player results override scores; otherwise stable ordering makes QQ win ties.
     public static LyricsResult? Select(IEnumerable<LyricsResult?> results, LyricsResult? preferred = null,
-        LyricsResult? currentPlayback = null) => currentPlayback ?? results.Prepend(preferred)
-        .Where(result => result is not null).OrderByDescending(result => result!.MatchScore).FirstOrDefault();
+        LyricsResult? currentPlayback = null) =>
+        (currentPlayback is not null && currentPlayback.MatchScore >= LyricsMetadataScore.MinimumScore ? currentPlayback : null) ??
+        results.Prepend(preferred)
+            .Where(result => result is not null && result.MatchScore >= LyricsMetadataScore.MinimumScore)
+            .OrderByDescending(result => result!.MatchScore).FirstOrDefault();
 }

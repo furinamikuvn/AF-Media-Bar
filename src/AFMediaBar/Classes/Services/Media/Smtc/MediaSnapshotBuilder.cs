@@ -203,9 +203,10 @@ public sealed class MediaSnapshotBuilder : IMemoryPrunable, IDisposable
         var sourceId = read.SourceId;
         var title = read.Title;
         var artist = read.Artist;
-        var request = new LyricsRequest(title, artist, read.Album, duration > 0 ? duration : null, null,
+        var sanitized = MediaTitleSanitizer.Sanitize(title, artist, sourceId);
+        var request = new LyricsRequest(sanitized.Title, sanitized.Artist, read.Album, duration > 0 ? duration : null, null,
             PlaybackSourceId: sourceId);
-        var lyrics = GetLyrics(session.Id, sourceId, request, read.IsVideo);
+        var lyrics = GetLyrics(session.Id, sourceId, request, read.IsVideo, title, artist);
 
         return new MediaSnapshot(
             true,
@@ -242,10 +243,10 @@ public sealed class MediaSnapshotBuilder : IMemoryPrunable, IDisposable
         _ => MediaRepeatMode.Unavailable
     };
 
-    internal LyricsResult? GetLyrics(string sessionId, string sourceId, LyricsRequest request, bool isVideo = false)
+    internal LyricsResult? GetLyrics(string sessionId, string sourceId, LyricsRequest request, bool isVideo = false, string? rawTitle = null, string? rawArtist = null)
     {
         if (_disposed) return null;
-        if (!LyricsMediaEligibilityPolicy.ShouldFetch(sourceId, isVideo, SettingsManager.Current.AllowBrowserAndVideoLyrics))
+        if (!LyricsMediaEligibilityPolicy.ShouldFetch(sourceId, isVideo, SettingsManager.Current.AllowBrowserAndVideoLyrics, rawTitle ?? request.Title, rawArtist ?? request.Artist))
             return null;
         request = request with { PlaybackSourceId = sourceId };
         // SMTC 的总时长可能随时间轴更新变化；它用于匹配，不用于缓存或在途请求的曲目身份。
@@ -299,17 +300,18 @@ public sealed class MediaSnapshotBuilder : IMemoryPrunable, IDisposable
     public void RequestOnlineLyrics(string sessionId, string sourceId, string title, string artist, double? durationSeconds)
     {
         if (_disposed || string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(title) ||
-            !LyricsMediaEligibilityPolicy.ShouldFetch(sourceId, false, SettingsManager.Current.AllowBrowserAndVideoLyrics))
+            !LyricsMediaEligibilityPolicy.ShouldFetch(sourceId, false, SettingsManager.Current.AllowBrowserAndVideoLyrics, title, artist))
         {
             return;
         }
 
-        var request = new LyricsRequest(title, artist, string.Empty, durationSeconds is > 0 ? durationSeconds : null, null,
+        var sanitized = MediaTitleSanitizer.Sanitize(title, artist, sourceId);
+        var request = new LyricsRequest(sanitized.Title, sanitized.Artist, string.Empty, durationSeconds is > 0 ? durationSeconds : null, null,
             PlaybackSourceId: sourceId);
         // The service snapshot has no album field; reuse the matching request already read from SMTC.
         (string SessionId, LyricsRequest Request) key = _lastLyricsKey is { } last && last.SessionId == sessionId &&
                   last.Request.PlaybackSourceId == sourceId &&
-                  last.Request.Title == title && last.Request.Artist == artist
+                  last.Request.Title == sanitized.Title && last.Request.Artist == sanitized.Artist
             ? last : (sessionId, request with { DurationSeconds = null });
         if (_lyricsCache.TryGetValue(key, out _) || !_pendingLyrics.Add(key))
         {

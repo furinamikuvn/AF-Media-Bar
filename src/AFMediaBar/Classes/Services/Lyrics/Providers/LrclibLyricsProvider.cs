@@ -23,6 +23,16 @@ public sealed class LrclibLyricsProvider : ILyricsProvider
             var result = Resolve(request, candidates ?? [], cancellationToken);
             if (result is not null) return result;
         }
+
+        if (!string.IsNullOrWhiteSpace(request.Artist))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var fallbackCandidates = await _api.Search(title, string.Empty).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            var fallbackResult = Resolve(request, fallbackCandidates ?? [], cancellationToken);
+            if (fallbackResult is not null) return fallbackResult;
+        }
+
         return null;
     }
 

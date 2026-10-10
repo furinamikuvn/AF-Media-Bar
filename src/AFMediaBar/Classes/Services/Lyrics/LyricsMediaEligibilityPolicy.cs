@@ -20,8 +20,13 @@ public static class LyricsMediaEligibilityPolicy
         "mangotv", "mgtv", "netflix", "potplayer", "vlc", "mpv.exe", "mpc-hc", "mpc-be"
     ];
 
-    public static bool ShouldFetch(string? sourceId, bool isVideo, bool allowBrowserAndVideoLyrics)
+    public static bool ShouldFetch(string? sourceId, bool isVideo, bool allowBrowserAndVideoLyrics, string? title = null, string? artist = null)
     {
+        if (MediaTitleSanitizer.IsExcludedVietnameseRemix(title, artist))
+        {
+            return false;
+        }
+
         if (allowBrowserAndVideoLyrics)
         {
             return true;
