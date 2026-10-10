@@ -58,7 +58,8 @@ public static class LyricsPresentationProjector
             return LyricsPresentationFrame.Hidden;
         }
 
-        var position = TaskbarExperiencePolicy.GetPosition(snapshot, now);
+        var rawPosition = TaskbarExperiencePolicy.GetPosition(snapshot, now);
+        var position = LyricTimelineTransformPolicy.ResolvePosition(snapshot, rawPosition);
         var index = LyricLineIndexPolicy.FindIndex(lines, position);
         if (index < 0)
         {
