@@ -4,6 +4,7 @@ using System.Linq;
 using System.Collections.Generic;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
+using AFMediaBar.Classes.Services;
 
 namespace AFMediaBar.Classes.Services.Audio;
 
@@ -15,16 +16,19 @@ public sealed class VocalActivityDetector : IDisposable
 {
     private const int VadSampleRate = 16000;
     private const int ChunkSize = 512;
-    private const float VocalProbabilityThreshold = 0.5f;
+    private const float VocalProbabilityThreshold = 0.28f;
+    private const float HighConfidenceVocalThreshold = 0.55f;
 
     private static byte[]? _cachedModelBytes;
     private static readonly object _modelLock = new();
 
     private readonly InferenceSession _session;
     private readonly float[] _chunkBuffer = new float[ChunkSize];
+    private readonly float[] _normalizedChunk = new float[ChunkSize];
     private readonly float[] _state = new float[2 * 1 * 128];
     private readonly long[] _sr = new long[] { VadSampleRate };
     private int _chunkCount;
+    private bool _hasHighConfidenceVocal;
 
     // 重采样状态
     private double _resamplePos;
@@ -38,9 +42,9 @@ public sealed class VocalActivityDetector : IDisposable
     public int MaxConsecutiveVocalChunks { get; private set; }
 
     /// <summary>
-    /// 是否已确凿检测到人声开唱（连续 >= 3 个 chunk 或累计 >= 5 个 chunk 超出置信阈值）。
+    /// 是否已确凿检测到人声开唱（连续 >= 2 个 chunk 或累计 >= 3 个 chunk 或单次高置信度 >= 0.55）。
     /// </summary>
-    public bool HasDetectedVocal => MaxConsecutiveVocalChunks >= 3 || TotalVocalChunks >= 5;
+    public bool HasDetectedVocal => MaxConsecutiveVocalChunks >= 2 || TotalVocalChunks >= 3 || _hasHighConfidenceVocal;
 
     /// <summary>
     /// 已处理的等效音频时长（秒）。
@@ -161,7 +165,29 @@ public sealed class VocalActivityDetector : IDisposable
             return;
         }
 
-        var inputTensor = new DenseTensor<float>(_chunkBuffer.AsMemory(), new[] { 1, ChunkSize });
+        // 自动软增益归一化（AGC）：防止系统或播放器音量过低导致神经网络被抑制
+        var maxAbs = 0f;
+        for (var i = 0; i < ChunkSize; i++)
+        {
+            var abs = Math.Abs(_chunkBuffer[i]);
+            if (abs > maxAbs)
+            {
+                maxAbs = abs;
+            }
+        }
+
+        var gain = 1.0f;
+        if (maxAbs > 0.005f && maxAbs < 0.35f)
+        {
+            gain = Math.Min(0.35f / maxAbs, 8.0f);
+        }
+
+        for (var i = 0; i < ChunkSize; i++)
+        {
+            _normalizedChunk[i] = Math.Clamp(_chunkBuffer[i] * gain, -1.0f, 1.0f);
+        }
+
+        var inputTensor = new DenseTensor<float>(_normalizedChunk.AsMemory(), new[] { 1, ChunkSize });
         var stateTensor = new DenseTensor<float>(_state.AsMemory(), new[] { 2, 1, 128 });
         var srTensor = new DenseTensor<long>(_sr.AsMemory(), Array.Empty<int>());
 
@@ -182,6 +208,11 @@ public sealed class VocalActivityDetector : IDisposable
         }
 
         TotalChunksProcessed++;
+        if (prob >= HighConfidenceVocalThreshold)
+        {
+            _hasHighConfidenceVocal = true;
+        }
+
         if (prob >= VocalProbabilityThreshold)
         {
             ConsecutiveVocalChunks++;
@@ -194,6 +225,11 @@ public sealed class VocalActivityDetector : IDisposable
         else
         {
             ConsecutiveVocalChunks = 0;
+        }
+
+        if (TotalChunksProcessed % 10 == 0 || prob >= 0.20f)
+        {
+            AppLogService.Current?.Info("Lyrics", $"[OneShotAI] Chunk #{TotalChunksProcessed} ({(TotalChunksProcessed * ChunkSize) / 16000.0:F2}s, gain={gain:F1}x): prob={prob:F3}, consecutive={ConsecutiveVocalChunks}, max={MaxConsecutiveVocalChunks}, totalVocal={TotalVocalChunks}");
         }
     }
 

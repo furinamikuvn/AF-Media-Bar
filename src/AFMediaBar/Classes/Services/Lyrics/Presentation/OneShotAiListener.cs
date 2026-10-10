@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using AFMediaBar.Classes.Models;
+using AFMediaBar.Classes.Services;
 using AFMediaBar.Classes.Services.Audio;
 using AFMediaBar.Classes.Utils;
 using Microsoft.Extensions.DependencyInjection;
@@ -73,9 +74,9 @@ public static class OneShotAiListener
             return isTrimmed;
         }
 
-        // 仅在曲目起始阶段（<= 4 秒）触发瞬态 AI 侦听
+        // 仅在曲目起始阶段（<= 5 秒）且处于播放中时触发瞬态 AI 侦听
         var position = snapshot.Position;
-        if (position <= 4.0)
+        if (position <= 5.0 && snapshot.IsPlaying)
         {
             TryStartInspection(key);
         }
@@ -98,10 +99,11 @@ public static class OneShotAiListener
             _activeCts?.Cancel();
             _activeCts?.Dispose();
 
-            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(4.0));
+            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6.0));
             _activeCts = cts;
             _activeInspectionKey = key;
 
+            AppLogService.Current?.Info("Lyrics", $"[OneShotAI] Launching inspection task for: {key}");
             _ = Task.Run(() => RunInspectionAsync(key, cts), cts.Token);
         }
     }
@@ -115,29 +117,38 @@ public static class OneShotAiListener
             {
                 audioMonitor = App.Services?.GetService<AudioMonitorService>();
             }
-            catch
+            catch (Exception ex)
             {
-                // UI 或环境未初始化时静默降级
+                AppLogService.Current?.Warn("Lyrics", $"[OneShotAI] Failed to get AudioMonitorService: {ex.Message}");
             }
         }
 
         if (audioMonitor == null)
         {
+            AppLogService.Current?.Warn("Lyrics", $"[OneShotAI] AudioMonitorService is null! Fallback decision=false for {key}");
             _decisionCache.Set(key, false);
             return;
         }
 
+        AppLogService.Current?.Info("Lyrics", $"[OneShotAI] Starting inspection for: {key}");
         VocalActivityDetector? detector = null;
         var finished = 0;
 
-        void Finish(bool result)
+        void Finish(bool result, string reason)
         {
             if (Interlocked.Exchange(ref finished, 1) != 0)
             {
                 return;
             }
 
-            _decisionCache.Set(key, result);
+            AppLogService.Current?.Info("Lyrics", $"[OneShotAI] Inspection finished: result={result}, reason='{reason}' for {key}");
+            
+            // 只有当确凿检测到人声，或者已经真正处理了足量有效音频(>= 3.5秒)时，才持久化缓存结果；
+            // 避免因播放暂停、未出声等原因导致早熟的 false 误判封死后续判定。
+            if (result || (detector != null && detector.ProcessedAudioSeconds >= 3.5))
+            {
+                _decisionCache.Set(key, result);
+            }
 
             try
             {
@@ -175,29 +186,30 @@ public static class OneShotAiListener
                 detector.ProcessAudio(buffer.AsSpan(0, count), sampleRate);
                 if (detector.HasDetectedVocal)
                 {
-                    Finish(true);
+                    Finish(true, $"Vocal detected (chunks={detector.TotalVocalChunks}, maxConsecutive={detector.MaxConsecutiveVocalChunks}, processed={detector.ProcessedAudioSeconds:F2}s)");
                 }
-                else if (detector.ProcessedAudioSeconds >= 2.5)
+                else if (detector.ProcessedAudioSeconds >= 4.0)
                 {
-                    Finish(false);
+                    Finish(false, $"4.0s processed without vocal (maxConsecutive={detector.MaxConsecutiveVocalChunks})");
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[OneShotAiListener] Inference failed: {ex.Message}");
-                Finish(false);
+                AppLogService.Current?.Warn("Lyrics", $"[OneShotAI] Inference failed: {ex.Message}");
+                Finish(false, $"Inference exception: {ex.Message}");
             }
         };
 
         try
         {
+            AppLogService.Current?.Info("Lyrics", $"[OneShotAI] Initializing detector and attaching audio consumer...");
             detector = new VocalActivityDetector();
             audioMonitor.AddAudioConsumer(consumer);
 
-            // 保持侦听直至判定完成或 3.5 秒超时
+            // 保持侦听直至判定完成或 5.5 秒超时
             var checkInterval = TimeSpan.FromMilliseconds(100);
             var elapsed = TimeSpan.Zero;
-            var maxWait = TimeSpan.FromSeconds(3.5);
+            var maxWait = TimeSpan.FromSeconds(5.5);
 
             while (!cts.IsCancellationRequested && finished == 0 && elapsed < maxWait)
             {
@@ -207,20 +219,20 @@ public static class OneShotAiListener
 
             if (finished == 0)
             {
-                Finish(false);
+                Finish(false, $"Timeout waiting for audio (elapsed={elapsed.TotalSeconds:F1}s, processedAudio={detector?.ProcessedAudioSeconds:F1}s)");
             }
         }
         catch (OperationCanceledException)
         {
             if (finished == 0)
             {
-                Finish(false);
+                Finish(false, "Operation canceled");
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[OneShotAiListener] Session error: {ex.Message}");
-            Finish(false);
+            AppLogService.Current?.Error("Lyrics", $"[OneShotAI] Session error: {ex.Message}", ex);
+            Finish(false, $"Session exception: {ex.Message}");
         }
         finally
         {
