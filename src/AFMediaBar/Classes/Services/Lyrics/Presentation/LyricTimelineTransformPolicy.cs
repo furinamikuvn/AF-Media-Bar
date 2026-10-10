@@ -64,13 +64,10 @@ public static class LyricTimelineTransformPolicy
             return rawPosition;
         }
 
-        var firstLineStart = lines[0].Start;
-        var isIntroTrimmed = OneShotAiListener.IsIntroTrimmed(snapshot, firstLineStart);
-
-        var cacheKey = $"{snapshot.Title}\t{snapshot.Artist}\t{snapshot.Duration:F1}\t{lyricDuration:F1}\t{isIntroTrimmed}";
+        var cacheKey = $"{snapshot.Title}\t{snapshot.Artist}\t{snapshot.Duration:F1}\t{lyricDuration:F1}";
         if (!_transformCache.TryGetValue(cacheKey, out var transform))
         {
-            transform = ComputeTransform(snapshot, lines, lyricDuration, isIntroTrimmed);
+            transform = ComputeTransform(snapshot, lines, lyricDuration);
             _transformCache.Set(cacheKey, transform);
         }
 
@@ -81,8 +78,7 @@ public static class LyricTimelineTransformPolicy
     private static TimelineTransformParams ComputeTransform(
         MediaSnapshot snapshot,
         IReadOnlyList<LyricLine> lines,
-        double lyricDuration,
-        bool isIntroTrimmed)
+        double lyricDuration)
     {
         var title = snapshot.Title ?? string.Empty;
         var artist = snapshot.Artist ?? string.Empty;
@@ -112,8 +108,8 @@ public static class LyricTimelineTransformPolicy
         if (hasSpeedUpTag || (isVietnamese && durationRatio >= 0.65 && durationRatio <= 0.92))
         {
             var firstLineStart = lines[0].Start;
-            // 依据 One-Shot AI 判定结果：仅当确切侦测到开头开唱且原曲有前奏时，才进行前奏裁切补偿
-            if (isIntroTrimmed && firstLineStart >= 5.0)
+            // 95% video speed up trên YouTube/TikTok khi bài gốc có dạo đầu (>= 6s) đều cắt bỏ dạo đầu để người xem nghe lời ngay
+            if (firstLineStart >= 6.0)
             {
                 var remainingLyricDuration = lyricDuration - firstLineStart;
                 var trimmedScale = remainingLyricDuration / snapshot.Duration;
@@ -132,7 +128,7 @@ public static class LyricTimelineTransformPolicy
         if (hasSlowedTag || (isVietnamese && durationRatio >= 1.08 && durationRatio <= 1.45))
         {
             var firstLineStart = lines[0].Start;
-            if (isIntroTrimmed && firstLineStart >= 5.0)
+            if (firstLineStart >= 6.0)
             {
                 var remainingLyricDuration = lyricDuration - firstLineStart;
                 var trimmedScale = remainingLyricDuration / snapshot.Duration;

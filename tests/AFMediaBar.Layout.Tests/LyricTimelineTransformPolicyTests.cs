@@ -172,10 +172,7 @@ public sealed class LyricTimelineTransformPolicyTests
     public void SpeedUp_WithTrimmedIntro_MatchesFromSecondZero()
     {
         // Case: Gió - Jank [ Lyrics // Speed Up ] (SArisu Chill)
-        // Original track: 277s, intro is 19.8s.
-        // AI Listener detected vocal at second 0 => Intro trimmed = true.
-        OneShotAiListener.SetIntroTrimmedOverride("Gió - Jank [ Lyrics // Speed Up ]", "SArisu Chill", 201.2, true);
-
+        // Original track: 277s, intro is 19.8s (first line starts at 19.8s >= 6.0s => auto trimmed intro).
         var doc = CreateLyricDoc(
             (19.8, 50.0, "Gió nhẹ sang tôi ngỡ trời xuân"),
             (50.0, 75.0, "Vương trên môi nụ hôn của ai"),
@@ -196,11 +193,9 @@ public sealed class LyricTimelineTransformPolicyTests
     [TestMethod]
     public void SpeedUp_WithoutTrimmedIntro_KeepsFullIntroScale()
     {
-        // Case: Track sped up BUT intro was NOT trimmed (only fast intro instruments played)
-        // AI Listener detected no vocal during first 2-3s => Intro trimmed = false.
-        OneShotAiListener.SetIntroTrimmedOverride("Nàng Thơ - Hoàng Dũng [ Speed Up ]", "V-Pop", 200.0, false);
-
+        // Case: Track sped up with intro line present at 0s => not trimmed
         var doc = CreateLyricDoc(
+            (0.0, 20.0, "Dạo đầu nhạc cụ"),
             (20.0, 60.0, "Em, ngày em đánh rơi nụ cười vào anh"),
             (60.0, 120.0, "Phiên khúc 2"),
             (120.0, 275.0, "Lời kết"));
