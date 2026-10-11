@@ -72,9 +72,9 @@ internal static class WindowBackdropRefreshChecks
                 Assert.IsTrue(calls.Any(call => call.Attribute == 38), "A loaded window must update before the next background operation, without closing it.");
                 var expected = MotionPolicy.ResolveCurrent().UseDecorativeEffects ? mode switch
                 {
-                    ApplicationBackdropMode.Mica => 2,
+                    ApplicationBackdropMode.Mica => OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) ? 2 : 3,
                     ApplicationBackdropMode.Acrylic => 3,
-                    ApplicationBackdropMode.MicaAlt => 4,
+                    ApplicationBackdropMode.MicaAlt => OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621) ? 4 : (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) ? 2 : 3),
                     _ => 1
                 } : 1;
                 Assert.AreEqual(expected, calls.Last(call => call.Attribute == 38).Value);

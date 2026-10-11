@@ -348,7 +348,10 @@ internal static class SettingsLiveVisualChecks
             Assert.AreEqual(position, first.TranslatePoint(new Point(), content), "Hover must not move the card.");
             Assert.AreEqual(size, first.RenderSize, "Hover must not change the card's layout.");
             first.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, Environment.TickCount) { RoutedEvent = Mouse.MouseLeaveEvent });
-            Pump(TimeSpan.FromMilliseconds(160));
+            var shadowDeadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(600);
+            while (surface.Effect is DropShadowEffect shadowAnim && shadowAnim.HasAnimatedProperties && DateTime.UtcNow < shadowDeadline)
+                Pump(TimeSpan.FromMilliseconds(20));
+            Pump(TimeSpan.FromMilliseconds(50));
             Assert.AreEqual(0, Panel.GetZIndex(first));
             if (surface.Effect is DropShadowEffect settled) Assert.AreEqual(0d, settled.Opacity, 0.001d);
             window.Close();
